@@ -27,6 +27,8 @@ int main() {
         try {spl::copy_game_tree(root/"input",root/"input"/"nested");}
         catch(const std::exception&){nested_rejected=true;}
         CHECK(nested_rejected);
+        spl::copy_game_tree(root/"input",root/"input-other");
+        CHECK(fs::exists(root/"input-other"/"content"/"test.txt"));
         bool rejected=false;
         try {spl::validate_dump(root/"input");}catch(const std::exception&){rejected=true;}
         CHECK(rejected);

@@ -16,8 +16,10 @@ if(MSVC)
 endif()
 set(REBREWU_EXTERNAL_ARGS "")
 if(REBREWU_EXTERNAL_TOOLCHAIN_FILE)
+    # Normalize Windows backslashes before ExternalProject writes its CMake scripts.
+    string(REPLACE "\\" "/" REBREWU_TOOLCHAIN_PATH "${REBREWU_EXTERNAL_TOOLCHAIN_FILE}")
     list(APPEND REBREWU_EXTERNAL_ARGS
-        "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${REBREWU_EXTERNAL_TOOLCHAIN_FILE}"
+        "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${REBREWU_TOOLCHAIN_PATH}"
         "-DVCPKG_TARGET_TRIPLET:STRING=x64-windows-static")
 endif()
 add_subdirectory(launcher)
