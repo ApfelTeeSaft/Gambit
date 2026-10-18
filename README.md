@@ -36,9 +36,11 @@ During setup, the progress bar displays real percentages when the underlying too
 
 ### Setup log and troubleshooting
 
-The GUI now preserves line breaks and automatically follows the newest log entry. It holds up to approximately eight million characters in memory, dropping the oldest lines only when that limit is reached. On Windows, child command output is displayed in the GUI rather than in additional console windows.
+The setup window uses a **native RichEdit log viewer on Windows**, and automatically moves its viewport to the newest output after each append. Both Windows and Linux keep a bounded eight-million-character GUI history to stay responsive. The full, untruncated session output is simultaneously saved as **`build/logs/setup-latest.log`** relative to the extracted release directory. The **Open full log** button opens this file while setup is running or after it finishes. A new setup run replaces `setup-latest.log`, so copy it elsewhere if you want to keep an earlier run's diagnostic log.
 
-If a previous release failed with `port_volk` and HTTP 404, it referenced a nonexistent `1.3.296` tag in the volk repository. Updated releases use volk's verified Vulkan 1.3.296 source commit. Re-download the updated release and retry **Install / Rebuild**. If a failed FetchContent download is cached, delete only the release's `build/game/` build-cache directory before retrying; keep your source dump and installation directory.
+The log on disk is independent of the GUI text control's size limit. On Windows, curl/tar/CMake child command output is still captured without spawning additional console windows.
+
+If a previous release failed with `port_volk` and HTTP 404, it referenced a nonexistent `1.3.296` tag in the volk repository. Updated releases use volk's verified Vulkan 1.3.296 source commit. **Publish a new versioned release and download its Windows ZIP** after merging fixes; already-downloaded release archives do not update automatically. Re-extract the new ZIP (including `port/`), and retry **Install / Rebuild**. If a failed FetchContent download is cached, delete only the release's `build/game/` build-cache directory before retrying; keep your source dump and installation directory.
 
 ### Commands
 
