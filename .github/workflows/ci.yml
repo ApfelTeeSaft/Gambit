@@ -76,7 +76,11 @@ jobs:
         run: cmake --build _ci/build --target SplatoonSetup --config Release --parallel 4
       - name: Run tests
         run: |
-          cmake --build _ci/build --target bootstrap_tests session_tests --config Release --parallel 4
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cmake --build _ci/build --target bootstrap_tests session_tests windows_log_control_tests --config Release --parallel 4
+          else
+            cmake --build _ci/build --target bootstrap_tests session_tests --config Release --parallel 4
+          fi
           ctest --test-dir _ci/build --output-on-failure -C Release
       - name: Linux GUI default-mode smoke test
         if: runner.os == 'Linux'

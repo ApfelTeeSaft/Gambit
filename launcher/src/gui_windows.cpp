@@ -6,6 +6,7 @@
 #include <ShObjIdl.h>
 #include <shellapi.h>
 #include <commctrl.h>
+#include <richedit.h>
 #include <algorithm>
 #include <stdexcept>
 #include <string>
@@ -17,7 +18,7 @@ namespace {
 enum Control : int {
     IdRom=110,IdRomFile,IdRomFolder,IdOutput,IdOutputBrowse,
     IdJava,IdJavaBrowse,IdJwud,IdJwudBrowse,IdAutoLaunch,
-    IdInstall,IdValidate,IdLaunch,IdCancel,IdStatus,IdLog,IdProgress
+    IdInstall,IdValidate,IdLaunch,IdCancel,IdStatus,IdLog,IdProgress,IdOpenLog
 };
 std::wstring wide(const std::string& s) {
     if(s.empty())return {};
@@ -71,14 +72,15 @@ struct WinWindow {
     SetupSession session;
     HWND window=nullptr;
     HFONT font=nullptr;
+    HMODULE rich_edit_module=nullptr;
     HWND rom=nullptr,out=nullptr,java=nullptr,jwud=nullptr,autolaunch=nullptr;
     HWND heading=nullptr,subtitle=nullptr,rom_label=nullptr,output_label=nullptr,java_label=nullptr,jwud_label=nullptr;
-    HWND install=nullptr,validate=nullptr,launch=nullptr,cancel=nullptr,status=nullptr,log=nullptr,progress=nullptr;
+    HWND install=nullptr,validate=nullptr,launch=nullptr,cancel=nullptr,status=nullptr,log=nullptr,progress=nullptr,open_log=nullptr;
     std::wstring transcript;
     bool last_validation=false;
     int displayed_percent=-1;
     explicit WinWindow(Options o,const fs::path& exe):opts(std::move(o)),session(exe){}
-    ~WinWindow(){if(font)DeleteObject(font);}
+    ~WinWindow(){if(font)DeleteObject(font);if(rich_edit_module)FreeLibrary(rich_edit_module);}
     HWND ctrl(DWORD ex,const wchar_t* kind,const wchar_t* title,DWORD style,int id=0) {
         HWND h=CreateWindowExW(ex,kind,title,WS_CHILD|WS_VISIBLE|style,0,0,20,20,
                                window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);
@@ -102,6 +104,7 @@ struct WinWindow {
         ShowWindow(window,SW_SHOWDEFAULT);UpdateWindow(window);return window;
     }
     void initialize() {
+        rich_edit_module=LoadLibraryW(L"Msftedit.dll");
         INITCOMMONCONTROLSEX common{sizeof(common),ICC_PROGRESS_CLASS};
         InitCommonControlsEx(&common);
         font=CreateFontW(-17,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,
@@ -123,12 +126,19 @@ struct WinWindow {
         validate=button(L"Validate dump",IdValidate);
         launch=button(L"Launch installed game",IdLaunch);
         cancel=button(L"Cancel",IdCancel);
+        open_log=button(L"Open full log",IdOpenLog);
         progress=ctrl(0,PROGRESS_CLASSW,L"",PBS_MARQUEE,IdProgress);
         SendMessageW(progress,PBM_SETRANGE32,0,100);
         status=label(L"Ready to set up.");
-        log=ctrl(WS_EX_CLIENTEDGE,L"EDIT",L"No game files or generated code are included in the release.\r\n",
-                 ES_MULTILINE|ES_READONLY|WS_VSCROLL|ES_AUTOVSCROLL,IdLog);
-        SendMessageW(log,EM_SETLIMITTEXT,static_cast<WPARAM>(max_gui_log_chars),0);
+        log=ctrl(WS_EX_CLIENTEDGE,rich_edit_module?MSFTEDIT_CLASS:L"EDIT",
+                 L"No game files or generated code are included in the release.\r\n",
+                 ES_MULTILINE|ES_READONLY|WS_VSCROLL|ES_AUTOVSCROLL|ES_NOHIDESEL,IdLog);
+        if(rich_edit_module) {
+            SendMessageW(log,EM_EXLIMITTEXT,0,static_cast<LPARAM>(max_gui_log_chars));
+            SendMessageW(log,EM_SETOPTIONS,ECOOP_OR,ECO_AUTOVSCROLL);
+        } else {
+            SendMessageW(log,EM_SETLIMITTEXT,static_cast<WPARAM>(max_gui_log_chars),0);
+        }
         resize();update_controls();SetTimer(window,1,120,nullptr);
     }
     void resize() {
@@ -153,10 +163,11 @@ struct WinWindow {
         field(java_label,java,GetDlgItem(window,IdJavaBrowse),nullptr);
         field(jwud_label,jwud,GetDlgItem(window,IdJwudBrowse),nullptr);
         move(autolaunch,x,y,width,23);y+=38;
-        int bw=144;
+        int bw=128;
         move(install,x,y,bw,33);move(validate,x+bw+8,y,bw,33);
-        move(launch,x+2*(bw+8),y,180,33);
-        move(cancel,x+2*(bw+8)+188,y,96,33);
+        move(launch,x+2*(bw+8),y,165,33);
+        move(cancel,x+2*(bw+8)+173,y,90,33);
+        move(open_log,x+2*(bw+8)+271,y,145,33);
         y+=47;move(progress,x,y,width,12);y+=24;
         move(status,x,y,width,22);y+=30;
         move(log,x,y,width,std::max(75,int(rc.bottom)-y-20));
@@ -166,6 +177,7 @@ struct WinWindow {
         EnableWindow(install,!busy);EnableWindow(validate,!busy);
         EnableWindow(launch,!busy && session.can_launch(fs::path(value(out))));
         EnableWindow(cancel,busy);
+        EnableWindow(open_log,!session.full_log_path().empty()&&fs::is_regular_file(session.full_log_path()));
         for(auto h:{rom,out,java,jwud,autolaunch,GetDlgItem(window,IdRomFile),GetDlgItem(window,IdRomFolder),
                     GetDlgItem(window,IdOutputBrowse),GetDlgItem(window,IdJavaBrowse),GetDlgItem(window,IdJwudBrowse)})
             EnableWindow(h,!busy);
@@ -186,6 +198,23 @@ struct WinWindow {
         set_status(verify?L"Validating game dump...":L"Setting up... see live output below.");
         update_controls();
     }
+    void open_full_log() {
+        const auto& path=session.full_log_path();
+        if(path.empty()||!fs::is_regular_file(path)) {
+            set_status(L"No setup log is available yet.");
+            return;
+        }
+        HINSTANCE result=ShellExecuteW(window,L"open",path.c_str(),nullptr,nullptr,SW_SHOWNORMAL);
+        if(reinterpret_cast<INT_PTR>(result)<=32)set_status(L"Could not open the full setup log.");
+    }
+    void scroll_log_to_end() {
+        if(rich_edit_module) {
+            CHARRANGE range{-1,-1};
+            SendMessageW(log,EM_EXSETSEL,0,reinterpret_cast<LPARAM>(&range));
+        } else SendMessageW(log,EM_SETSEL,static_cast<WPARAM>(-1),static_cast<LPARAM>(-1));
+        SendMessageW(log,EM_SCROLLCARET,0,0);
+        SendMessageW(log,WM_VSCROLL,MAKEWPARAM(SB_BOTTOM,0),0);
+    }
     void launch_game() {
         fs::path directory=value(out);
         auto binary=directory/L"Splatoon.exe";
@@ -204,13 +233,13 @@ struct WinWindow {
             else if(part.find("recompile")!=std::string::npos)set_status(L"Generating native code...");
             auto text=windows_log_newlines(wide(part));
             bool trimmed=append_gui_log(transcript,text);
-            if(trimmed)SetWindowTextW(log,transcript.c_str());
-            else {
-                SendMessageW(log,EM_SETSEL,static_cast<WPARAM>(-1),static_cast<LPARAM>(-1));
+            if(trimmed) {
+                SetWindowTextW(log,transcript.c_str());
+            } else {
+                scroll_log_to_end();
                 SendMessageW(log,EM_REPLACESEL,FALSE,reinterpret_cast<LPARAM>(text.c_str()));
             }
-            SendMessageW(log,EM_SETSEL,static_cast<WPARAM>(-1),static_cast<LPARAM>(-1));
-            SendMessageW(log,EM_SCROLLCARET,0,0);
+            scroll_log_to_end();
         }
         if(!update.stage.empty()) {
             displayed_percent=update.percent;
@@ -258,6 +287,7 @@ struct WinWindow {
             case IdValidate:begin(true);break;
             case IdLaunch:launch_game();break;
             case IdCancel:session.cancel();set_status(L"Cancelling setup...");break;
+            case IdOpenLog:open_full_log();break;
             }
             return 0;
         case WM_GETMINMAXINFO: {

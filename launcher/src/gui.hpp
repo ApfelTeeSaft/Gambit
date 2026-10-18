@@ -2,6 +2,7 @@
 #include "install.hpp"
 #include <atomic>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -23,6 +24,7 @@ public:
     bool running() const { return busy_.load(); }
     bool consume(std::string& log, int& result, SetupProgress* progress = nullptr);
     bool can_launch(const fs::path& output) const;
+    const fs::path& full_log_path() const { return full_log_path_; }
 private:
     void worker(std::vector<std::string> args);
     void push(std::string message);
@@ -31,6 +33,8 @@ private:
     std::mutex mutex_;
     std::string pending_;
     std::string incoming_line_;
+    fs::path full_log_path_;
+    std::ofstream full_log_;
     SetupProgress progress_;
     bool progress_changed_=false;
     std::atomic<bool> busy_{false};
