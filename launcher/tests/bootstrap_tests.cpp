@@ -37,6 +37,13 @@ int main() {
                   return false;
               })==0);
         CHECK(got_output);
+        std::string lines;
+        CHECK(spl::execute("cmake",{"-E","echo","first\n\nthird"},{},
+              [&](const std::string& line) {
+                  lines+=line+"|";
+                  return false;
+              })==0);
+        CHECK(lines=="first||third|");
         CHECK(spl::supported_layout(root/"input"));
         CHECK(spl::resolve_layout(root)==fs::absolute(root/"input"));
         spl::validate_dump(root/"input",false);
