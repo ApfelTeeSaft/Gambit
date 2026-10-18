@@ -63,6 +63,12 @@ jobs:
           assert any(n.endswith('/CMakeLists.txt') for n in names), 'Missing volk CMakeLists'
           assert any(n.endswith('/volk.h') for n in names), 'Missing volk header'
           PY
+      - name: Test portable zlib fallback without system headers
+        run: |
+          cmake -S tests/cmake/portable_zlib -B _ci/zlib-fallback -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON
+          cmake --build _ci/zlib-fallback --target portable_zlib_probe --parallel 4
+          ctest --test-dir _ci/zlib-fallback --output-on-failure
       - name: Configure project
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
