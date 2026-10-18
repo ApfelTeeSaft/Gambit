@@ -1,6 +1,8 @@
 #include "gui.hpp"
 #include <chrono>
 #include <iostream>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <thread>
 
@@ -27,5 +29,13 @@ int main(int argc,char** argv) {
     if(!done || status==0 || !saw_progress || output.find("@@SPLPORT_PROGRESS")!=std::string::npos ||
        output.find("does not exist")==std::string::npos)
         throw std::runtime_error("Session did not return the expected CLI error: " + output);
+    const auto& log_path=session.full_log_path();
+    if(!std::filesystem::is_regular_file(log_path))
+        throw std::runtime_error("Full setup log file was not created");
+    std::ifstream file(log_path,std::ios::binary);
+    std::string saved((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+    if(saved.find("does not exist")==std::string::npos ||
+       saved.find("@@SPLPORT_PROGRESS")!=std::string::npos)
+        throw std::runtime_error("Full setup log did not retain the diagnostic output");
     std::cout<<"GUI process/session test passed\n";
 }
