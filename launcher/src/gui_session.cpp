@@ -1,4 +1,5 @@
 #include "gui.hpp"
+#include "gui_log.hpp"
 #include <stdexcept>
 #ifdef _WIN32
 #define NOMINMAX
@@ -52,7 +53,11 @@ void SetupSession::push(std::string message) {
     std::lock_guard<std::mutex> lock(mutex_);
     for(char ch:message) {
         if(ch!='\n') {
-            if(incoming_line_.size()<32768)incoming_line_.push_back(ch);
+            if(incoming_line_.size()==262144) {
+                pending_+=incoming_line_;
+                incoming_line_.clear();
+            }
+            incoming_line_.push_back(ch);
             continue;
         }
         if(!incoming_line_.empty()&&incoming_line_.back()=='\r')incoming_line_.pop_back();
@@ -75,7 +80,12 @@ void SetupSession::push(std::string message) {
         }
         incoming_line_.clear();
     }
-    if(pending_.size()>131072)pending_.erase(0,pending_.size()-131072);
+    if(pending_.size()>max_gui_log_chars) {
+        std::size_t drop=pending_.size()-retained_gui_log_chars;
+        auto boundary=pending_.find('\n',drop);
+        if(boundary!=std::string::npos)drop=boundary+1;
+        pending_.erase(0,drop);
+    }
 }
 void SetupSession::start(const Options& opts, bool validate_only) {
     if(busy_.load()) throw std::runtime_error("Setup is already running");
@@ -219,6 +229,14 @@ void SetupSession::worker(std::vector<std::string> args) {
         close(fds[0]);
     } else push("Unable to create setup process pipe.\n");
 #endif
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if(!incoming_line_.empty()) {
+            pending_+=incoming_line_;
+            pending_+='\n';
+            incoming_line_.clear();
+        }
+    }
     if(cancelling_) push("\nSetup cancelled.\n");
     exit_code_=status;
     busy_=false;
