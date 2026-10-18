@@ -71,8 +71,12 @@ fs::path locate(const fs::path& repo, const fs::path& relative, const std::strin
     if(exists_file(local)) return absolute_path(local);
     return fs::path(name);
 }
-void run(const fs::path& program, std::vector<std::string> args, const fs::path& cwd={}) {
-    auto result=execute(program,args,cwd);
+void progress(const char* stage,int percent=-1) {
+    std::cout<<"@@SPLPORT_PROGRESS\t"<<stage<<"\t"<<std::clamp(percent,-1,100)<<'\n'<<std::flush;
+}
+void run(const fs::path& program, std::vector<std::string> args, const fs::path& cwd={},
+         const OutputLine& on_line={}) {
+    auto result=execute(program,args,cwd,on_line);
     if(result!=0) {
         std::ostringstream s;s<<"Step failed: "<<program.filename().string()<<" returned "<<result;
         throw std::runtime_error(s.str());
@@ -85,21 +89,33 @@ void download(const fs::path& repo, const std::string& url, const fs::path& dest
     }
     fs::create_directories(destination.parent_path());
     auto partial=destination;partial+=".part";
-    std::error_code ec; fs::remove(partial,ec);
+    std::error_code ec;fs::remove(partial,ec);
     std::cout<<"Downloading "<<url<<"\n";
+    progress("Downloading compiler");
+    int previous=-1;
     try {
         run(locate(repo,"tools/curl",std::string("curl")+exe_suffix),{
-            "--fail","--location","--proto","=https","--proto-redir","=https",
-            "--tlsv1.2","--retry","3","--connect-timeout","30","--output",string(partial),url});
-        if(!sha.empty()) require(crypto::sha256(partial)==sha,"Downloaded file did not match its pinned SHA-256 digest");
+            "--fail","--location","--progress-bar","--proto","=https","--proto-redir","=https",
+            "--tlsv1.2","--retry","3","--connect-timeout","30","--output",string(partial),url},
+            {},[&](const std::string& line) {
+                static const std::regex percentage(R"((\d+(?:\.\d+)?)%)");
+                std::smatch match;
+                if(std::regex_search(line,match,percentage)) {
+                    int value=std::clamp(int(std::stod(match[1].str())),0,100);
+                    if(value!=previous) {previous=value;progress("Downloading compiler",value);}
+                    return false;
+                }
+                return true;
+            });
+        progress("Verifying compiler archive");
+        if(!sha.empty())require(crypto::sha256(partial)==sha,"Downloaded file did not match its pinned SHA-256 digest");
         fs::rename(partial,destination);
-    } catch(...) { fs::remove(partial,ec);throw; }
+        progress("Downloading compiler",100);
+    } catch(...) {fs::remove(partial,ec);throw;}
 }
 void extract_archive(const fs::path& repo, const fs::path& archive, const fs::path& into) {
     require(fs::is_regular_file(archive),"Archive does not exist");
     fs::create_directories(into);
-    // Prefer a bundled bsdtar where available; otherwise use host tar/unzip.
-    // The launcher does not implicitly run any script from inside the archive.
     auto tar=locate(repo,"tools/bsdtar",std::string("bsdtar")+exe_suffix);
     if(tar==fs::path(std::string("bsdtar")+exe_suffix)) {
 #ifdef _WIN32
@@ -108,13 +124,43 @@ void extract_archive(const fs::path& repo, const fs::path& archive, const fs::pa
         tar="tar";
 #endif
     }
+    const auto source=string(absolute_path(archive));
+    const auto target=string(absolute_path(into));
 #ifndef _WIN32
-    if(lower(archive.extension().string())==".zip" && tar==fs::path("tar")) {
-        run("unzip",{"-q",string(absolute_path(archive)),"-d",string(absolute_path(into))});
-        return;
-    }
+    const bool unzip=lower(archive.extension().string())==".zip" && tar==fs::path("tar");
+#else
+    const bool unzip=false;
 #endif
-    run(tar,{"-xf",string(absolute_path(archive)),"-C",string(absolute_path(into))});
+    std::size_t total=0;
+    const auto list_command=unzip?fs::path("unzip"):tar;
+    const auto list_args=unzip?std::vector<std::string>{"-Z","-1",source}
+                              :std::vector<std::string>{"-tf",source};
+    if(execute(list_command,list_args,{},[&](const std::string& line) {
+        if(!line.empty())++total;
+        return false;
+    })!=0)throw std::runtime_error("Unable to list archive entries before extraction");
+    progress("Extracting archive",total?0:-1);
+    std::size_t done=0;
+    int last=-1;
+    auto extracted=[&](const std::string& line) {
+        bool entry=!line.empty();
+        if(unzip) {
+            entry=line.find("inflating:")!=std::string::npos ||
+                  line.find("extracting:")!=std::string::npos ||
+                  line.find("creating:")!=std::string::npos;
+        } else if(line.rfind("tar:",0)==0 || line.rfind("bsdtar:",0)==0) {
+            entry=false;
+        }
+        if(entry && total) {
+            ++done;
+            int current=int(std::min<std::size_t>(99,done*100/total));
+            if(current!=last) {last=current;progress("Extracting archive",current);}
+        }
+        return !entry;
+    };
+    if(unzip)run("unzip",{"-o",source,"-d",target},{},extracted);
+    else run(tar,{"-xvf",source,"-C",target},{},extracted);
+    progress("Extracting archive",100);
 }
 void stage_directory(const fs::path& source, const fs::path& output) {
     copy_game_tree(resolve_layout(source),output);
