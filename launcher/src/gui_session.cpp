@@ -51,16 +51,7 @@ SetupSession::~SetupSession() {
 }
 void SetupSession::push(std::string message) {
     std::lock_guard<std::mutex> lock(mutex_);
-    for(char ch:message) {
-        if(ch!='\n') {
-            if(incoming_line_.size()==262144) {
-                pending_+=incoming_line_;
-                incoming_line_.clear();
-            }
-            incoming_line_.push_back(ch);
-            continue;
-        }
-        if(!incoming_line_.empty()&&incoming_line_.back()=='\r')incoming_line_.pop_back();
+    auto write_line=[&] {
         constexpr auto marker="@@SPLPORT_PROGRESS\t";
         if(incoming_line_.rfind(marker,0)==0) {
             auto tab=incoming_line_.find('\t',sizeof("@@SPLPORT_PROGRESS\t")-1);
@@ -71,15 +62,31 @@ void SetupSession::push(std::string message) {
                         progress_={incoming_line_.substr(sizeof("@@SPLPORT_PROGRESS\t")-1,
                                                           tab-(sizeof("@@SPLPORT_PROGRESS\t")-1)),percent};
                         progress_changed_=true;
+                        incoming_line_.clear();
+                        return;
                     }
                 } catch(const std::exception&) {}
             }
-        } else {
-            pending_+=incoming_line_;
-            pending_+='\n';
         }
+        pending_+=incoming_line_;
+        pending_+='\n';
+        if(full_log_.is_open())full_log_<<incoming_line_<<'\n';
         incoming_line_.clear();
+    };
+    for(char ch:message) {
+        if(ch=='\n') {
+            if(!incoming_line_.empty()&&incoming_line_.back()=='\r')incoming_line_.pop_back();
+            write_line();
+        } else {
+            incoming_line_.push_back(ch);
+            if(incoming_line_.size()>=262144) {
+                pending_+=incoming_line_;
+                if(full_log_.is_open())full_log_<<incoming_line_;
+                incoming_line_.clear();
+            }
+        }
     }
+    if(full_log_.is_open())full_log_.flush();
     if(pending_.size()>max_gui_log_chars) {
         std::size_t drop=pending_.size()-retained_gui_log_chars;
         auto boundary=pending_.find('\n',drop);
@@ -93,6 +100,14 @@ void SetupSession::start(const Options& opts, bool validate_only) {
     cancelling_=false;
     finished_=false;
     exit_code_=-1;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if(full_log_.is_open())full_log_.close();
+        full_log_path_=opts.repository/"build"/"logs"/"setup-latest.log";
+        fs::create_directories(full_log_path_.parent_path());
+        full_log_.open(full_log_path_,std::ios::binary|std::ios::trunc);
+        if(!full_log_)throw std::runtime_error("Could not create full setup log: "+full_log_path_.string());
+    }
     {
         std::lock_guard<std::mutex> lock(mutex_);
         pending_.clear();
@@ -234,8 +249,10 @@ void SetupSession::worker(std::vector<std::string> args) {
         if(!incoming_line_.empty()) {
             pending_+=incoming_line_;
             pending_+='\n';
+            if(full_log_.is_open())full_log_<<incoming_line_<<'\n';
             incoming_line_.clear();
         }
+        if(full_log_.is_open())full_log_.flush();
     }
     if(cancelling_) push("\nSetup cancelled.\n");
     exit_code_=status;
