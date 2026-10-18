@@ -26,18 +26,6 @@ std::wstring wide(const std::string& s) {
     MultiByteToWideChar(CP_UTF8,0,s.data(),int(s.size()),w.data(),n);
     return w;
 }
-std::wstring edit_lines(const std::wstring& text) {
-    std::wstring out;
-    out.reserve(text.size()+text.size()/8);
-    for(std::size_t i=0;i<text.size();++i) {
-        if(text[i]==L'\r') {
-            out+=L"\r\n";
-            if(i+1<text.size()&&text[i+1]==L'\n')++i;
-        } else if(text[i]==L'\n')out+=L"\r\n";
-        else out+=text[i];
-    }
-    return out;
-}
 std::wstring value(HWND control) {
     int n=GetWindowTextLengthW(control);
     std::wstring out(n+1,L'\0');
@@ -214,7 +202,7 @@ struct WinWindow {
             if(part.find("Downloading")!=std::string::npos)set_status(L"Downloading required tools...");
             else if(part.find("Validated supported")!=std::string::npos)set_status(L"Game dump verified.");
             else if(part.find("recompile")!=std::string::npos)set_status(L"Generating native code...");
-            auto text=edit_lines(wide(part));
+            auto text=windows_log_newlines(wide(part));
             bool trimmed=append_gui_log(transcript,text);
             if(trimmed)SetWindowTextW(log,transcript.c_str());
             else {
