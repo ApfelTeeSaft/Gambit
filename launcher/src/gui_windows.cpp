@@ -89,7 +89,7 @@ struct WinWindow {
     HWND button(const wchar_t* str,int id) {return ctrl(0,L"BUTTON",str,WS_TABSTOP|BS_PUSHBUTTON,id);}
     HWND make_window(HINSTANCE instance) {
         WNDCLASSEXW c{sizeof(c)};
-        c.lpfnWndProc=window_proc;c.hInstance=instance;c.hCursor=LoadCursorW(nullptr,IDC_ARROW);
+        c.lpfnWndProc=window_proc;c.hInstance=instance;c.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));
         c.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
         c.lpszClassName=L"SplatoonPortSetupWindow";
         RegisterClassExW(&c);
