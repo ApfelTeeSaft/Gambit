@@ -34,6 +34,12 @@ Supplying CLI options without `--gui` uses the command-line workflow for scripts
 
 During setup, the progress bar displays real percentages when the underlying tool reports measurable progress: curl transfers, tar/unzip archive entries, copied game files and Ninja build steps. Long operations without a trustworthy completion estimate (including RebrewU code generation, initial archive scanning and CMake configuration) use an animated activity bar rather than a fabricated percentage. Child tool diagnostics appear in the in-window log, and on Windows curl/tar/CMake run without opening separate command windows. Listing archive entries first adds an initial scan before extraction begins.
 
+### Setup log and troubleshooting
+
+The GUI now preserves line breaks and automatically follows the newest log entry. It holds up to approximately eight million characters in memory, dropping the oldest lines only when that limit is reached. On Windows, child command output is displayed in the GUI rather than in additional console windows.
+
+If a previous release failed with `port_volk` and HTTP 404, it referenced a nonexistent `1.3.296` tag in the volk repository. Updated releases use volk's verified Vulkan 1.3.296 source commit. Re-download the updated release and retry **Install / Rebuild**. If a failed FetchContent download is cached, delete only the release's `build/game/` build-cache directory before retrying; keep your source dump and installation directory.
+
 ### Commands
 
 ```text
