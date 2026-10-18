@@ -178,6 +178,7 @@ fs::path prepare_input(const Options& opts, const fs::path& work) {
     if(ext==".zip") {
         extract_archive(opts.repository,selected,destination);
     } else {
+        progress("Decrypting disc image");
         auto java = !opts.java.empty() ? opts.java : locate(opts.repository,"tools/java/bin",std::string("java")+exe_suffix);
         auto jwud = !opts.jwud.empty() ? opts.jwud : opts.repository/"tools/JWUDTool.jar";
         require(exists_file(jwud),"WUD/WUX extraction requires a local JWUDTool.jar in tools/ (or --jwud); no copyrighted keys are bundled");
@@ -204,6 +205,7 @@ void bootstrap_zig(const fs::path& repo, const fs::path& work) {
     auto archive=work/"downloads"/name;
     auto url=std::string("https://ziglang.org/download/")+zig_version+"/"+name;
     download(repo,url,archive,zig_sha);
+    progress("Preparing toolchain extraction");
     auto temp=work/"toolchain"/"unpacking";
     fs::remove_all(temp);
     extract_archive(repo,archive,temp);
@@ -247,6 +249,7 @@ void build_private_game(const Options& opts, const fs::path& selected, const fs:
     auto ninja=ninja_tool(repo);
     require(execute(cmake,{"--version"})==0,"CMake missing. Use the published portable launcher bundle with tools/cmake/bin/.");
     require(execute(ninja,{"--version"})==0,"Ninja missing. Use the published portable launcher bundle with tools/ninja/.");
+    progress("Preparing native compiler");
     write_toolchain(work);
     auto flags=std::vector<std::string>{"-G","Ninja","-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_MAKE_PROGRAM="+string(absolute_path(ninja)),
@@ -262,8 +265,10 @@ void build_private_game(const Options& opts, const fs::path& selected, const fs:
     std::string previous;{std::ifstream in(stamp);std::getline(in,previous);}
     if(previous!=checksum || !exists_file(generated/"Gambit_register.cpp") || function_count(generated/"Gambit_register.cpp")<96300) {
         fs::remove_all(generated);fs::create_directories(generated);
+        progress("Recompiling game code");
         run(rebrewu,{"recompile","--rpx",string(selected/"code"/"Gambit.rpx"),
                     "--output",string(generated),"--analyzer-entries",string(entry)});
+        progress("Recompiling game code",100);
         require(exists_file(generated/"Gambit_data.cpp") && exists_file(generated/"Gambit.h") &&
                 function_count(generated/"Gambit_register.cpp")>=96300,
                 "Recompiler output was incomplete. Refusing to compile an incomplete game.");
@@ -275,8 +280,24 @@ void build_private_game(const Options& opts, const fs::path& selected, const fs:
     gameArgs.push_back("-DGAMBIT_GENERATED_DIR="+string(generated));
     gameArgs.push_back("-DRBREW_BUILD_GAME=ON");
     gameArgs.push_back("-DSPLPORT_FETCH_DEPS=ON");
+    progress("Configuring game build");
     run(cmake,gameArgs);
-    run(cmake,{"--build",string(gameBuild),"--target","Gambit","--parallel","4"});
+    progress("Compiling native game");
+    int last=-1;
+    const std::regex build_step(R"(\[(\d+)/(\d+)\])");
+    run(cmake,{"--build",string(gameBuild),"--target","Gambit","--parallel","4"},{},
+        [&](const std::string& line) {
+            std::smatch match;
+            if(std::regex_search(line,match,build_step)) {
+                const auto count=std::stoull(match[1].str()),total=std::stoull(match[2].str());
+                if(total) {
+                    int value=int(std::min<unsigned long long>(99,count*100/total));
+                    if(value!=last) {last=value;progress("Compiling native game",value);}
+                }
+            }
+            return true;
+        });
+    progress("Compiling native game",100);
     auto binary=gameBuild/(std::string("Splatoon")+exe_suffix);
     if(!exists_file(binary)) binary=gameBuild/"Release"/(std::string("Splatoon")+exe_suffix);
     require(exists_file(binary),"Game executable was not produced");
@@ -391,6 +412,12 @@ void copy_game_tree(const fs::path& source, const fs::path& destination) {
     require(std::mismatch(source_path.begin(),source_path.end(),
                           destination_path.begin(),destination_path.end()).first!=source_path.end(),
             "Destination cannot be nested inside the selected ROM source");
+    progress("Copying game files");
+    std::size_t total=0;
+    for(auto dirname:{"code","content","meta"})
+        for(auto& entry:fs::recursive_directory_iterator(source/dirname))
+            if(entry.is_regular_file())++total;
+    std::size_t copied=0;int last=-1;
     // Symlinks are not followed: only regular files in the user's own dump are copied.
     for(auto dirname:{"code","content","meta"}) {
         auto root=source/dirname;
@@ -402,9 +429,15 @@ void copy_game_tree(const fs::path& source, const fs::path& destination) {
             else if(it->is_regular_file()) {
                 fs::create_directories(target.parent_path());
                 fs::copy_file(it->path(),target,fs::copy_options::overwrite_existing);
+                ++copied;
+                if(total) {
+                    int current=int(std::min<std::size_t>(99,copied*100/total));
+                    if(current!=last){last=current;progress("Copying game files",current);}
+                }
             } else throw std::runtime_error("Unsupported file type inside dump");
         }
     }
+    progress("Copying game files",100);
 }
 
 std::string select_input() {
@@ -466,10 +499,12 @@ int install(const Options& user) {
     }
     if(opts.rom.empty()) opts.rom=select_input();
     require(!opts.rom.empty(),"No ROM dump selected");
+    progress("Validating game dump");
     fs::path source;
     if(opts.validate_only && fs::is_directory(opts.rom)) source=resolve_layout(opts.rom);
     else source=prepare_input(opts,work);
     validate_dump(source);
+    progress("Validating game dump",100);
     std::cout<<"Validated supported Splatoon EUR v16 dump.\n";
     if(opts.validate_only) return 0;
     std::cout<<"This setup downloads an official Zig compiler and builds game-derived code locally.\n";
