@@ -138,9 +138,9 @@ struct Window {
         add(base,text("SPLATOON 1  /  PC PORT"));
         auto* subtitle=text("Select a dump of the supported EUR v16 game. Setup recompiles it only on this computer.");
         g.gtk_label_set_line_wrap(subtitle,1);add(base,subtitle);
-        row_field(base,"Game dump (raw folder, .zip, .wud, or .wux)",rom,opts.rom.string(),
+        row_field(base,"Game dump (source: raw folder, ZIP, WUD, or WUX)",rom,opts.rom.string(),
                   "Choose file",file_cb,"Choose folder",folder_cb);
-        row_field(base,"Installation directory",out,opts.output.string(),"Browse",output_cb);
+        row_field(base,"Installation directory (destination for compiled game)",out,opts.output.string(),"Browse",output_cb);
         signal(out,"changed",output_changed_cb);
         row_field(base,"Java executable for encrypted WUD/WUX (optional)",java,opts.java.string(),"Browse",java_cb);
         row_field(base,"JWUDTool.jar for encrypted WUD/WUX (optional)",jwud,opts.jwud.string(),"Browse",jwud_cb);

@@ -71,6 +71,7 @@ struct WinWindow {
     HWND window=nullptr;
     HFONT font=nullptr;
     HWND rom=nullptr,out=nullptr,java=nullptr,jwud=nullptr,autolaunch=nullptr;
+    HWND heading=nullptr,subtitle=nullptr,rom_label=nullptr,output_label=nullptr,java_label=nullptr,jwud_label=nullptr;
     HWND install=nullptr,validate=nullptr,launch=nullptr,cancel=nullptr,status=nullptr,log=nullptr,progress=nullptr;
     std::wstring transcript;
     bool last_validation=false;
@@ -103,16 +104,16 @@ struct WinWindow {
         InitCommonControlsEx(&common);
         font=CreateFontW(-17,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,
                          DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
-        label(L"SPLATOON 1 / PC PORT");
-        label(L"Select your dump. Game-derived code stays on your computer.");
-        label(L"Game dump (raw folder, ZIP, WUD, or WUX)");
+        heading=label(L"SPLATOON 1 / PC PORT");
+        subtitle=label(L"Select your game dump below. Game-derived code stays on your computer.");
+        rom_label=label(L"Game dump (source: raw folder, ZIP, WUD, or WUX)");
         rom=entry(opts.rom,IdRom);
         button(L"Choose file",IdRomFile);button(L"Choose folder",IdRomFolder);
-        label(L"Installation directory");
+        output_label=label(L"Installation directory (destination for compiled game)");
         out=entry(opts.output,IdOutput);button(L"Browse",IdOutputBrowse);
-        label(L"Java executable (optional for WUD/WUX)");
+        java_label=label(L"Java executable (for WUD/WUX only)");
         java=entry(opts.java,IdJava);button(L"Browse",IdJavaBrowse);
-        label(L"JWUDTool.jar (optional for WUD/WUX)");
+        jwud_label=label(L"JWUDTool.jar (for WUD/WUX only)");
         jwud=entry(opts.jwud,IdJwud);button(L"Browse",IdJwudBrowse);
         autolaunch=ctrl(0,L"BUTTON",L"Launch game after installation",BS_AUTOCHECKBOX|WS_TABSTOP,IdAutoLaunch);
         SendMessageW(autolaunch,BM_SETCHECK,opts.no_launch?BST_UNCHECKED:BST_CHECKED,0);
@@ -128,40 +129,26 @@ struct WinWindow {
         resize();update_controls();SetTimer(window,1,120,nullptr);
     }
     void resize() {
-        if(!window||!rom)return;
+        if(!window||!rom||!heading||!subtitle||!rom_label||!output_label||!java_label||!jwud_label)return;
         RECT rc{};GetClientRect(window,&rc);
         int width=std::max(500,int(rc.right)-48);
         int x=24,y=19;
-        HWND item=GetWindow(window,GW_CHILD);
         auto move=[&](HWND h,int left,int top,int w,int ht){MoveWindow(h,left,top,w,ht,TRUE);};
-        if(!item)return;
-        // Static labels appear first in creation order and are retrieved by sibling walk.
-        HWND headline=GetWindow(window,GW_CHILD);
-        for(int i=0;i<5&&headline;++i)headline=GetWindow(headline,GW_HWNDNEXT);
-        // Layout uses IDs and label positions without depending on Windows creation Z-order.
-        std::vector<HWND> labels;
-        for(HWND cur=GetWindow(window,GW_CHILD);cur;cur=GetWindow(cur,GW_HWNDNEXT)) {
-            wchar_t type[32]{};GetClassNameW(cur,type,32);
-            if(wcscmp(type,L"Static")==0 && cur!=status&&cur!=progress)labels.push_back(cur);
-        }
-        std::reverse(labels.begin(),labels.end());
-        if(labels.size()>=6) {
-            move(labels[0],x,y,width,32);y+=35;
-            move(labels[1],x,y,width,22);y+=41;
-            auto field=[&](HWND e,HWND a,HWND b,int label_index) {
-                move(labels[label_index],x,y,width,21);y+=24;
-                int bwidth=b?108:0;
-                int awidth=108;
-                move(e,x,y,width-awidth-bwidth-16,30);
-                move(a,x+width-awidth-bwidth-8,y,awidth,30);
-                if(b)move(b,x+width-bwidth,y,bwidth,30);
-                y+=49;
-            };
-            field(rom,GetDlgItem(window,IdRomFile),GetDlgItem(window,IdRomFolder),2);
-            field(out,GetDlgItem(window,IdOutputBrowse),nullptr,3);
-            field(java,GetDlgItem(window,IdJavaBrowse),nullptr,4);
-            field(jwud,GetDlgItem(window,IdJwudBrowse),nullptr,5);
-        }
+        move(heading,x,y,width,32);y+=35;
+        move(subtitle,x,y,width,22);y+=41;
+        auto field=[&](HWND field_label,HWND e,HWND a,HWND b) {
+            move(field_label,x,y,width,21);y+=24;
+            int bwidth=b?108:0;
+            int awidth=108;
+            move(e,x,y,width-awidth-bwidth-16,30);
+            move(a,x+width-awidth-bwidth-8,y,awidth,30);
+            if(b)move(b,x+width-bwidth,y,bwidth,30);
+            y+=49;
+        };
+        field(rom_label,rom,GetDlgItem(window,IdRomFile),GetDlgItem(window,IdRomFolder));
+        field(output_label,out,GetDlgItem(window,IdOutputBrowse),nullptr);
+        field(java_label,java,GetDlgItem(window,IdJavaBrowse),nullptr);
+        field(jwud_label,jwud,GetDlgItem(window,IdJwudBrowse),nullptr);
         move(autolaunch,x,y,width,23);y+=38;
         int bw=144;
         move(install,x,y,bw,33);move(validate,x+bw+8,y,bw,33);
