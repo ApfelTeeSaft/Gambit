@@ -312,14 +312,28 @@ void build_private_game(const Options& opts, const fs::path& selected, const fs:
 int execute(const fs::path& program, const std::vector<std::string>& args,
             const fs::path& cwd, const OutputLine& on_line) {
     std::string partial;
+    bool previous_cr=false;
+    auto emit_line=[&] {
+        if(!on_line || on_line(partial))std::cout<<partial<<'\n';
+        partial.clear();
+    };
     auto consume=[&](const char* data,std::size_t size) {
         for(std::size_t i=0;i<size;++i) {
             const char ch=data[i];
-            if(ch=='\n'||ch=='\r') {
-                if(partial.empty())continue;
-                if(!on_line || on_line(partial))std::cout<<partial<<'\n';
-                partial.clear();
-            } else if(partial.size()<32768)partial.push_back(ch);
+            if(ch=='\r') {
+                emit_line();
+                previous_cr=true;
+            } else if(ch=='\n') {
+                if(!previous_cr)emit_line();
+                previous_cr=false;
+            } else {
+                previous_cr=false;
+                partial.push_back(ch);
+                if(partial.size()>=256*1024) {
+                    if(!on_line || on_line(partial))std::cout<<partial;
+                    partial.clear();
+                }
+            }
         }
     };
     auto finish=[&] {
