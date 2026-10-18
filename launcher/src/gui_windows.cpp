@@ -163,11 +163,11 @@ struct WinWindow {
         field(java_label,java,GetDlgItem(window,IdJavaBrowse),nullptr);
         field(jwud_label,jwud,GetDlgItem(window,IdJwudBrowse),nullptr);
         move(autolaunch,x,y,width,23);y+=38;
-        int bw=144;
+        int bw=128;
         move(install,x,y,bw,33);move(validate,x+bw+8,y,bw,33);
-        move(launch,x+2*(bw+8),y,180,33);
-        move(cancel,x+2*(bw+8)+188,y,96,33);
-        move(open_log,x+2*(bw+8)+292,y,168,33);
+        move(launch,x+2*(bw+8),y,165,33);
+        move(cancel,x+2*(bw+8)+173,y,90,33);
+        move(open_log,x+2*(bw+8)+271,y,145,33);
         y+=47;move(progress,x,y,width,12);y+=24;
         move(status,x,y,width,22);y+=30;
         move(log,x,y,width,std::max(75,int(rc.bottom)-y-20));
