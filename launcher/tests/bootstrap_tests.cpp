@@ -1,4 +1,5 @@
 #include "install.hpp"
+#include "gui_log.hpp"
 #include "sha256.hpp"
 #include <stdexcept>
 #define CHECK(v) do { if(!(v)) throw std::runtime_error("Check failed: " #v); } while(false)
@@ -7,6 +8,17 @@
 #include <iostream>
 
 int main() {
+    std::wstring mixed=L"first\nsecond\r\nthird\rfourth";
+    CHECK(spl::windows_log_newlines(mixed)==L"first\r\nsecond\r\nthird\r\nfourth");
+    std::string log="first\n";
+    CHECK(!spl::append_gui_log(log,std::string("second\n")));
+    CHECK(log=="first\nsecond\n");
+    CHECK(!spl::append_gui_log(log,std::string(spl::max_gui_log_chars-log.size(),'x')));
+    CHECK(spl::append_gui_log(log,std::string("\nlatest\n")));
+    CHECK(log=="latest\n");
+    std::wstring wide_log(spl::max_gui_log_chars,L'x');
+    CHECK(spl::append_gui_log(wide_log,std::wstring(L"\nlatest\n")));
+    CHECK(wide_log==L"latest\n");
     namespace fs=std::filesystem;
     auto root=fs::temp_directory_path()/("splbootstrap-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
