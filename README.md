@@ -21,8 +21,8 @@ The large **SPLATOON 1 / PC PORT** heading and the text **Select your game dump 
 | **Java executable** | Only needed for **WUD/WUX** extraction. Select a Java executable (for example, `java.exe` on Windows), or use the supported bundled `tools/java/bin/` location. Leave empty for a raw directory or ZIP. |
 | **JWUDTool.jar** | Only needed for **WUD/WUX** extraction. Select your locally supplied `JWUDTool.jar`, or place it at `tools/JWUDTool.jar` beside the launcher. Leave empty for a raw directory or ZIP. You must provide your own required decryption keys. |
 | **Launch game after installation** | Automatically starts the newly compiled game when setup succeeds. |
- 
-**Windows example:** With your own dump at `D:\\Games\\SplatoonDump\\`, set **Game dump** to that folder and **Installation directory** to `D:\\Splatoon\\`. Your extracted release ZIP (containing `SplatoonSetup.exe` and `rebrewu.exe`) can stay somewhere else. You do not need to put the dump inside the release ZIP.
+
+**Windows example:** With your own dump at `D:\Games\SplatoonDump\`, set **Game dump** to that folder and **Installation directory** to `D:\Splatoon\`. Your extracted release ZIP (containing `SplatoonSetup.exe` and `rebrewu.exe`) can stay somewhere else. You do not need to put the dump inside the release ZIP.
 
 **Setup actions:** **Validate dump** checks the selected dump/version without building or installing the game (archives may be extracted for validation). **Install / Rebuild** imports the selected files and generates/builds the native executable locally. **Launch installed game** starts an existing compiled game from the installation directory. **Cancel** stops an active setup operation. The log panel below the buttons shows detailed progress and errors.
 
