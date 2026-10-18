@@ -100,7 +100,7 @@ struct Window {
     Options opts;
     SetupSession session;
     Widget *win=nullptr,*rom=nullptr,*out=nullptr,*java=nullptr,*jwud=nullptr;
-    Widget *status=nullptr,*progress=nullptr,*log=nullptr,*start=nullptr,*verify=nullptr,*launch=nullptr,*cancel=nullptr;
+    Widget *status=nullptr,*progress=nullptr,*log=nullptr,*start=nullptr,*verify=nullptr,*launch=nullptr,*cancel=nullptr,*open_log_button=nullptr;
     Widget *launch_when_done=nullptr;
     bool exit_requested=false;
     bool installed=false;
@@ -157,6 +157,7 @@ struct Window {
         verify=button(actions,"Validate dump",verify_cb);
         launch=button(actions,"Launch installed game",launch_cb);
         cancel=button(actions,"Cancel setup",cancel_cb);
+        open_log_button=button(actions,"Open full log",log_cb);
         progress=g.gtk_progress_bar_new();add(base,progress);
         status=text(installed?"Existing installation found. You can launch it or select a new dump.":"Ready to set up.");
         add(base,status);
@@ -178,6 +179,7 @@ struct Window {
         g.gtk_widget_set_sensitive(verify,!busy);
         g.gtk_widget_set_sensitive(launch,!busy&&session.can_launch(g.gtk_entry_get_text(out)));
         g.gtk_widget_set_sensitive(cancel,busy);
+        g.gtk_widget_set_sensitive(open_log_button,!session.full_log_path().empty()&&fs::is_regular_file(session.full_log_path()));
         g.gtk_widget_set_sensitive(launch_when_done,!busy);
         for(auto* entry:{rom,out,java,jwud})g.gtk_widget_set_sensitive(entry,!busy);
     }
@@ -224,6 +226,20 @@ struct Window {
         catch(const std::exception& e) {g.gtk_label_set_text(status,e.what());return;}
         g.gtk_label_set_text(status,validation?"Validating dump...":"Setting up (this may take time)...");
         update_controls();
+    }
+    void open_full_log() {
+        const auto path=session.full_log_path();
+        if(path.empty()||!fs::is_regular_file(path)) {
+            g.gtk_label_set_text(status,"No setup log is available yet.");
+            return;
+        }
+        pid_t child=fork();
+        if(child==0) {
+            auto filename=path.string();
+            execlp("xdg-open","xdg-open",filename.c_str(),static_cast<char*>(nullptr));
+            _exit(127);
+        }
+        if(child<0)g.gtk_label_set_text(status,"Unable to open setup log.");
     }
     void launch_installed() {
         fs::path output=g.gtk_entry_get_text(out);
@@ -277,6 +293,7 @@ struct Window {
     CB(start_cb,s.begin(false))
     CB(verify_cb,s.begin(true))
     CB(launch_cb,s.launch_installed())
+    CB(log_cb,s.open_full_log())
     CB(cancel_cb,s.session.cancel();s.g.gtk_label_set_text(s.status,"Cancelling setup..."))
 #undef CB
 };
