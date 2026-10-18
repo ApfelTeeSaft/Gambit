@@ -18,6 +18,13 @@ int main() {
         std::ofstream(root/"input"/"content"/"test.txt")<<"data";
         CHECK(spl::crypto::sha256(root/"input"/"code"/"Gambit.rpx")==
               "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        bool got_output=false;
+        CHECK(spl::execute("cmake",{"-E","echo","splatoon-child-output"},{},
+              [&](const std::string& line) {
+                  if(line=="splatoon-child-output")got_output=true;
+                  return false;
+              })==0);
+        CHECK(got_output);
         CHECK(spl::supported_layout(root/"input"));
         CHECK(spl::resolve_layout(root)==fs::absolute(root/"input"));
         spl::validate_dump(root/"input",false);
