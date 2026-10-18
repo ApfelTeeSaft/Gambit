@@ -32,6 +32,8 @@ The default invocation opens the **graphical installer** on Windows and Linux. W
 
 Supplying CLI options without `--gui` uses the command-line workflow for scripts and CI. Pass `--gui` to prefill paths from command-line arguments but still open the graphical installer. The GUI does not recompile or distribute game code itself: it launches the **bundled native RebrewU** on the user's computer during setup.
 
+During setup, the progress bar displays real percentages when the underlying tool reports measurable progress: curl transfers, tar/unzip archive entries, copied game files and Ninja build steps. Long operations without a trustworthy completion estimate (including RebrewU code generation, initial archive scanning and CMake configuration) use an animated activity bar rather than a fabricated percentage. Child tool diagnostics appear in the in-window log, and on Windows curl/tar/CMake run without opening separate command windows. Listing archive entries first adds an initial scan before extraction begins.
+
 ### Commands
 
 ```text
