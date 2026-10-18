@@ -43,7 +43,7 @@ FetchContent_Declare(port_vulkan_headers
 FetchContent_MakeAvailable(port_vulkan_headers)
 
 FetchContent_Declare(port_volk
-    URL https://github.com/zeux/volk/archive/refs/tags/1.3.296.tar.gz
+    URL https://github.com/zeux/volk/archive/5283d1ba45f1886be8f4e133f211929c8a7c099b.tar.gz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(port_volk)
 
