@@ -68,7 +68,138 @@ jobs:
           cmake -S tests/cmake/portable_zlib -B _ci/zlib-fallback -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON
           cmake --build _ci/zlib-fallback --target portable_zlib_probe --parallel 4
-          ctest --test-dir _ci/zlib-fallback --output-on-failure
+          ctest --test-dir _ci/zlib-fallback --output-on-failure -R '^portable_zlib_probe
+      - name: Configure project
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            vcpkg_root="${VCPKG_INSTALLATION_ROOT//\\//}"
+            cmake -S . -B _ci/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              "-DREBREWU_EXTERNAL_TOOLCHAIN_FILE:FILEPATH=$vcpkg_root/scripts/buildsystems/vcpkg.cmake"
+          else
+            cmake -S . -B _ci/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          fi
+      - name: Build both tools from one target
+        run: cmake --build _ci/build --target SplatoonSetup --config Release --parallel 4
+      - name: Run tests
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cmake --build _ci/build --target bootstrap_tests session_tests windows_log_control_tests --config Release --parallel 4
+          else
+            cmake --build _ci/build --target bootstrap_tests session_tests --config Release --parallel 4
+          fi
+          ctest --test-dir _ci/build --output-on-failure -C Release
+      - name: Linux GUI default-mode smoke test
+        if: runner.os == 'Linux'
+        run: |
+          timeout 15s xvfb-run -a env SPLATOON_GUI_SMOKE_TEST=1 _ci/build/launcher/SplatoonSetup
+      - name: Package complete native release
+        run: cmake --build _ci/build --target package_release --config Release --parallel 4
+      - name: Check packaged binaries
+        run: |
+          cd _ci/build/dist/SplatoonPort
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            test -s SplatoonSetup.exe
+            test -s rebrewu.exe
+            ./SplatoonSetup.exe --help
+            version_output="$(./rebrewu.exe version 2>&1 || true)"
+            [[ "$version_output" == RebrewU\ v* ]]
+          else
+            test -x SplatoonSetup
+            test -x rebrewu
+            ./SplatoonSetup --help
+            version_output="$(./rebrewu version 2>&1 || true)"
+            [[ "$version_output" == RebrewU\ v* ]]
+          fi
+          test -f port/CMakeLists.txt
+          test -f profiles/agmp-v16.entries
+          test ! -d recompiler
+          test ! -e Gambit_data.cpp
+      - name: Unsupported mock dump must be rejected
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+          p=Path('_ci/fixture/Wrapped')
+          for d in ('code','content','meta'): (p/d).mkdir(parents=True,exist_ok=True)
+          (p/'code/Gambit.rpx').write_bytes(b'unsupported mock RPX')
+          (p/'meta/meta.xml').write_text('<meta/>')
+          (p/'content/dummy.dat').write_bytes(b'fixture')
+          with zipfile.ZipFile('_ci/mock.zip','w') as z:
+              for f in p.rglob('*'):
+                  if f.is_file():z.write(f,f.relative_to(p.parent))
+          PY
+          launcher="_ci/build/dist/SplatoonPort/SplatoonSetup"
+          [[ "${{ runner.os }}" == "Windows" ]] && launcher="${launcher}.exe"
+          if "$launcher" --rom _ci/mock.zip --repo . --validate-only; then
+            echo 'Unsupported ROM unexpectedly accepted' >&2
+            exit 1
+          fi
+          test -f build/extracted/Wrapped/content/dummy.dat
+      - name: Reject checked-in game files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          forbidden={'.rpx','.rpl','.wud','.wux','.bfres','.szs','.pack','.app','.tik','.tmd','.key','.otp'}
+          tracked=subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
+          found=[f for f in tracked if Path(f).suffix.lower() in forbidden]
+          if found: raise SystemExit('Game-specific files tracked: '+str(found))
+          PY
+      - name: Add portable CMake and Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p _ci/downloads _ci/build/dist/SplatoonPort/tools/{ninja,cmake}
+          curl -fL --retry 3 -o _ci/downloads/cmake.zip https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-windows-x86_64.zip
+          curl -fL --retry 3 -o _ci/downloads/ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip
+          7z x _ci/downloads/cmake.zip -o_ci/downloads/cmake > /dev/null
+          7z x _ci/downloads/ninja.zip -o_ci/build/dist/SplatoonPort/tools/ninja > /dev/null
+          cp -R _ci/downloads/cmake/cmake-3.31.7-windows-x86_64/. _ci/build/dist/SplatoonPort/tools/cmake/
+      - name: Add portable CMake and Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p _ci/downloads _ci/build/dist/SplatoonPort/tools/{ninja,cmake}
+          curl -fL --retry 3 -o _ci/downloads/cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
+          curl -fL --retry 3 -o _ci/downloads/ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
+          tar -xf _ci/downloads/cmake.tar.gz --strip-components=1 -C _ci/build/dist/SplatoonPort/tools/cmake
+          unzip -qo _ci/downloads/ninja.zip -d _ci/build/dist/SplatoonPort/tools/ninja
+          chmod +x _ci/build/dist/SplatoonPort/tools/ninja/ninja
+      - name: Create GitHub-ready ZIP
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/_dist"
+          cd _ci/build/dist/SplatoonPort
+          cmake -E tar cf "$GITHUB_WORKSPACE/_dist/SplatoonPort-${{ runner.os }}-x64.zip" --format=zip -- .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SplatoonPort-${{ runner.os }}-x64
+          path: _dist/SplatoonPort-${{ runner.os }}-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: native
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: SplatoonPort-*-x64
+          path: release-assets
+          merge-multiple: true
+      - name: Publish versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -s release-assets/SplatoonPort-Windows-x64.zip
+          test -s release-assets/SplatoonPort-Linux-x64.zip
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release-assets/*.zip --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" release-assets/*.zip --generate-notes --repo "$GITHUB_REPOSITORY"
+          fi
+
       - name: Configure project
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
