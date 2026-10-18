@@ -50,8 +50,32 @@ SetupSession::~SetupSession() {
 }
 void SetupSession::push(std::string message) {
     std::lock_guard<std::mutex> lock(mutex_);
-    pending_+=message;
-    if(pending_.size()>131072) pending_.erase(0,pending_.size()-131072);
+    for(char ch:message) {
+        if(ch!='\n') {
+            if(incoming_line_.size()<32768)incoming_line_.push_back(ch);
+            continue;
+        }
+        if(!incoming_line_.empty()&&incoming_line_.back()=='\r')incoming_line_.pop_back();
+        constexpr auto marker="@@SPLPORT_PROGRESS\t";
+        if(incoming_line_.rfind(marker,0)==0) {
+            auto tab=incoming_line_.find('\t',sizeof("@@SPLPORT_PROGRESS\t")-1);
+            if(tab!=std::string::npos) {
+                try {
+                    int percent=std::stoi(incoming_line_.substr(tab+1));
+                    if(percent>=-1&&percent<=100&&tab<160) {
+                        progress_={incoming_line_.substr(sizeof("@@SPLPORT_PROGRESS\t")-1,
+                                                          tab-(sizeof("@@SPLPORT_PROGRESS\t")-1)),percent};
+                        progress_changed_=true;
+                    }
+                } catch(const std::exception&) {}
+            }
+        } else {
+            pending_+=incoming_line_;
+            pending_+='\n';
+        }
+        incoming_line_.clear();
+    }
+    if(pending_.size()>131072)pending_.erase(0,pending_.size()-131072);
 }
 void SetupSession::start(const Options& opts, bool validate_only) {
     if(busy_.load()) throw std::runtime_error("Setup is already running");
@@ -62,6 +86,9 @@ void SetupSession::start(const Options& opts, bool validate_only) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         pending_.clear();
+        incoming_line_.clear();
+        progress_={};
+        progress_changed_=false;
     }
     std::vector<std::string> args{"--cli","--rom",utf8(opts.rom),"--repo",utf8(opts.repository),
                                   "--output",utf8(opts.output),"--no-launch"};
@@ -84,10 +111,14 @@ void SetupSession::cancel() {
     }
 #endif
 }
-bool SetupSession::consume(std::string& log, int& result) {
+bool SetupSession::consume(std::string& log, int& result, SetupProgress* progress) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         log.swap(pending_);
+        if(progress) {
+            *progress=progress_changed_?progress_:SetupProgress{};
+            progress_changed_=false;
+        }
     }
     if(finished_.exchange(false)) {
         if(thread_.joinable()) thread_.join();
