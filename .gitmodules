@@ -1,0 +1,4 @@
+[submodule "recompiler"]
+	path = recompiler
+	url = https://github.com/ApfelTeeSaft/RebrewU.git
+	branch = main

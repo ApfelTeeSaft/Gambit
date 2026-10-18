@@ -1,0 +1,33 @@
+# User-owned game content and all generated derivatives
+/build/
+/Game/
+/_ci/
+/_dist/
+/launcher/build/
+/recompiler/build/
+/Gambit/
+*.rpx
+*.rpl
+*.wud
+*.wux
+*.bfres
+*.szs
+*.pack
+*.tik
+*.tmd
+*.app
+*.key
+*.otp
+content/
+meta/
+mlc01/
+vulkan_cache/
+vulkan_cache.zip
+save/
+
+# Local platform and packaging helpers
+/tools/
+.DS_Store
+.vs/
+__pycache__/
+*.pyc
