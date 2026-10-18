@@ -1,6 +1,7 @@
 #ifdef _WIN32
 #define NOMINMAX
 #include "gui.hpp"
+#include "gui_log.hpp"
 #include <Windows.h>
 #include <ShObjIdl.h>
 #include <shellapi.h>
@@ -24,6 +25,18 @@ std::wstring wide(const std::string& s) {
     std::wstring w(n,L'\0');
     MultiByteToWideChar(CP_UTF8,0,s.data(),int(s.size()),w.data(),n);
     return w;
+}
+std::wstring edit_lines(const std::wstring& text) {
+    std::wstring out;
+    out.reserve(text.size()+text.size()/8);
+    for(std::size_t i=0;i<text.size();++i) {
+        if(text[i]==L'\r') {
+            out+=L"\r\n";
+            if(i+1<text.size()&&text[i+1]==L'\n')++i;
+        } else if(text[i]==L'\n')out+=L"\r\n";
+        else out+=text[i];
+    }
+    return out;
 }
 std::wstring value(HWND control) {
     int n=GetWindowTextLengthW(control);
@@ -127,6 +140,7 @@ struct WinWindow {
         status=label(L"Ready to set up.");
         log=ctrl(WS_EX_CLIENTEDGE,L"EDIT",L"No game files or generated code are included in the release.\r\n",
                  ES_MULTILINE|ES_READONLY|WS_VSCROLL|ES_AUTOVSCROLL,IdLog);
+        SendMessageW(log,EM_SETLIMITTEXT,static_cast<WPARAM>(max_gui_log_chars),0);
         resize();update_controls();SetTimer(window,1,120,nullptr);
     }
     void resize() {
@@ -200,10 +214,14 @@ struct WinWindow {
             if(part.find("Downloading")!=std::string::npos)set_status(L"Downloading required tools...");
             else if(part.find("Validated supported")!=std::string::npos)set_status(L"Game dump verified.");
             else if(part.find("recompile")!=std::string::npos)set_status(L"Generating native code...");
-            transcript+=wide(part);
-            if(transcript.size()>20000)transcript.erase(0,transcript.size()-20000);
-            SetWindowTextW(log,transcript.c_str());
-            SendMessageW(log,EM_SETSEL,WPARAM(-1),LPARAM(-1));
+            auto text=edit_lines(wide(part));
+            bool trimmed=append_gui_log(transcript,text);
+            if(trimmed)SetWindowTextW(log,transcript.c_str());
+            else {
+                SendMessageW(log,EM_SETSEL,static_cast<WPARAM>(-1),static_cast<LPARAM>(-1));
+                SendMessageW(log,EM_REPLACESEL,FALSE,reinterpret_cast<LPARAM>(text.c_str()));
+            }
+            SendMessageW(log,EM_SETSEL,static_cast<WPARAM>(-1),static_cast<LPARAM>(-1));
             SendMessageW(log,EM_SCROLLCARET,0,0);
         }
         if(!update.stage.empty()) {
