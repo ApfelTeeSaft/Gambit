@@ -68,7 +68,7 @@ jobs:
           cmake -S tests/cmake/portable_zlib -B _ci/zlib-fallback -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON
           cmake --build _ci/zlib-fallback --target portable_zlib_probe --parallel 4
-          ctest --test-dir _ci/zlib-fallback --output-on-failure -R '^portable_zlib_probe
+          ctest --test-dir _ci/zlib-fallback --output-on-failure -R portable_zlib_probe
       - name: Configure project
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
