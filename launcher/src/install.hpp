@@ -1,5 +1,6 @@
 #pragma once
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,8 @@ fs::path resolve_layout(const fs::path& root);
 void validate_dump(const fs::path& root, bool check_hash = true);
 void copy_game_tree(const fs::path& source, const fs::path& destination);
 std::string select_input();
-int execute(const fs::path& program, const std::vector<std::string>& args, const fs::path& cwd = {});
+using OutputLine = std::function<bool(const std::string&)>;
+int execute(const fs::path& program, const std::vector<std::string>& args, const fs::path& cwd = {},
+            const OutputLine& on_line = {});
 int install(const Options& options);
 }
