@@ -131,6 +131,7 @@ void extract_archive(const fs::path& repo, const fs::path& archive, const fs::pa
 #else
     const bool unzip=false;
 #endif
+    progress("Scanning archive");
     std::size_t total=0;
     const auto list_command=unzip?fs::path("unzip"):tar;
     const auto list_args=unzip?std::vector<std::string>{"-Z","-1",source}
