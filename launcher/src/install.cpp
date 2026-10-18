@@ -302,7 +302,10 @@ void validate_dump(const fs::path& root, bool check_hash) {
 void copy_game_tree(const fs::path& source, const fs::path& destination) {
     require(supported_layout(source),"Missing game folders in source");
     require(absolute_path(source)!=absolute_path(destination),"Source and destination must differ");
-    require(absolute_path(destination).string().rfind(absolute_path(source).string()+fs::path::preferred_separator,0)!=0,
+    const auto source_path=absolute_path(source);
+    const auto destination_path=absolute_path(destination);
+    require(std::mismatch(source_path.begin(),source_path.end(),
+                          destination_path.begin(),destination_path.end()).first!=source_path.end(),
             "Destination cannot be nested inside the selected ROM source");
     // Symlinks are not followed: only regular files in the user's own dump are copied.
     for(auto dirname:{"code","content","meta"}) {

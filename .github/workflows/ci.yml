@@ -35,7 +35,6 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           vcpkg install zlib:x64-windows-static
-          echo "REBREWU_CMAKE_OPTIONS=-DREBREWU_EXTERNAL_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> "$GITHUB_ENV"
       - name: Validate RebrewU submodule
         run: |
           git submodule status --recursive
@@ -43,7 +42,14 @@ jobs:
           test "$(git ls-files -s recompiler | awk '{print $1}')" = 160000
           test "$(git config -f .gitmodules --get submodule.recompiler.url)" = https://github.com/ApfelTeeSaft/RebrewU.git
       - name: Configure project
-        run: cmake -S . -B _ci/build -G Ninja -DCMAKE_BUILD_TYPE=Release $REBREWU_CMAKE_OPTIONS
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            vcpkg_root="${VCPKG_INSTALLATION_ROOT//\\//}"
+            cmake -S . -B _ci/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              "-DREBREWU_EXTERNAL_TOOLCHAIN_FILE:FILEPATH=$vcpkg_root/scripts/buildsystems/vcpkg.cmake"
+          else
+            cmake -S . -B _ci/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          fi
       - name: Build both tools from one target
         run: cmake --build _ci/build --target SplatoonSetup --config Release --parallel 4
       - name: Run tests
