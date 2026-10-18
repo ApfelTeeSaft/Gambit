@@ -41,6 +41,28 @@ jobs:
           test -f recompiler/CMakeLists.txt
           test "$(git ls-files -s recompiler | awk '{print $1}')" = 160000
           test "$(git config -f .gitmodules --get submodule.recompiler.url)" = https://github.com/ApfelTeeSaft/RebrewU.git
+      - name: Verify pinned volk archive is downloadable
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p _ci/dependency-check
+          volk_url="$(python - <<'PY'
+          from pathlib import Path
+          import re
+          source=Path('port/cmake/PortableDependencies.cmake').read_text()
+          match=re.search(r'FetchContent_Declare\(port_volk\s+URL\s+(\S+)',source)
+          if not match: raise SystemExit('Cannot find pinned volk source URL')
+          print(match.group(1))
+          PY
+          )"
+          curl --fail --location --retry 3 -o _ci/dependency-check/volk.tar.gz "$volk_url"
+          python - <<'PY'
+          from pathlib import Path
+          import tarfile
+          with tarfile.open('_ci/dependency-check/volk.tar.gz','r:gz') as archive:
+              names=archive.getnames()
+          assert any(n.endswith('/CMakeLists.txt') for n in names), 'Missing volk CMakeLists'
+          assert any(n.endswith('/volk.h') for n in names), 'Missing volk header'
+          PY
       - name: Configure project
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then

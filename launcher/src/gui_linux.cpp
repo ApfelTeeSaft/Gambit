@@ -1,5 +1,6 @@
 #ifndef _WIN32
 #include "gui.hpp"
+#include "gui_log.hpp"
 #include <dlfcn.h>
 #include <cstdlib>
 #include <iostream>
@@ -48,6 +49,8 @@ struct GtkApi {
     G(gtk_text_view_set_wrap_mode,void,Widget*,int);
     G(gtk_text_buffer_set_text,void,Widget*,const char*,int);
     G(gtk_text_buffer_insert_at_cursor,void,Widget*,const char*,int);
+    G(gtk_text_buffer_get_insert,Widget*,Widget*);
+    G(gtk_text_view_scroll_mark_onscreen,void,Widget*,Widget*);
     G(gtk_progress_bar_new,Widget*);
     G(gtk_progress_bar_pulse,void,Widget*);
     G(gtk_progress_bar_set_fraction,void,Widget*,double);
@@ -79,7 +82,9 @@ struct GtkApi {
         LOAD(gtk_text_view_new);LOAD(gtk_text_view_get_buffer);
         LOAD(gtk_text_view_set_editable);LOAD(gtk_text_view_set_cursor_visible);
         LOAD(gtk_text_view_set_wrap_mode);LOAD(gtk_text_buffer_set_text);
-        LOAD(gtk_text_buffer_insert_at_cursor);LOAD(gtk_progress_bar_new);
+        LOAD(gtk_text_buffer_insert_at_cursor);
+        LOAD(gtk_text_buffer_get_insert);LOAD(gtk_text_view_scroll_mark_onscreen);
+        LOAD(gtk_progress_bar_new);
         LOAD(gtk_progress_bar_pulse);LOAD(gtk_progress_bar_set_fraction);
         LOAD(gtk_file_chooser_dialog_new);LOAD(gtk_dialog_run);
         LOAD(gtk_file_chooser_get_filename);LOAD(gtk_file_chooser_set_filename);
@@ -189,11 +194,11 @@ struct Window {
         g.gtk_widget_destroy(dialog);
     }
     void append(std::string chunk) {
-        transcript+=chunk;
-        if(transcript.size()>50000) transcript.erase(0,transcript.size()-50000);
-        // Reset the text on truncation to avoid an unbounded GUI buffer.
+        bool trimmed=append_gui_log(transcript,chunk);
         auto* buffer=g.gtk_text_view_get_buffer(log);
-        g.gtk_text_buffer_set_text(buffer,transcript.c_str(),-1);
+        if(trimmed)g.gtk_text_buffer_set_text(buffer,transcript.c_str(),-1);
+        else g.gtk_text_buffer_insert_at_cursor(buffer,chunk.c_str(),int(chunk.size()));
+        g.gtk_text_view_scroll_mark_onscreen(log,g.gtk_text_buffer_get_insert(buffer));
         if(chunk.find("Downloading")!=std::string::npos)g.gtk_label_set_text(status,"Downloading required tools...");
         else if(chunk.find("Validated supported")!=std::string::npos)g.gtk_label_set_text(status,"Game dump verified.");
         else if(chunk.find("recompile")!=std::string::npos)g.gtk_label_set_text(status,"Generating native code...");
