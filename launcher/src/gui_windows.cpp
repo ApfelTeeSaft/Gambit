@@ -75,6 +75,7 @@ struct WinWindow {
     HWND install=nullptr,validate=nullptr,launch=nullptr,cancel=nullptr,status=nullptr,log=nullptr,progress=nullptr;
     std::wstring transcript;
     bool last_validation=false;
+    int displayed_percent=-1;
     explicit WinWindow(Options o,const fs::path& exe):opts(std::move(o)),session(exe){}
     ~WinWindow(){if(font)DeleteObject(font);}
     HWND ctrl(DWORD ex,const wchar_t* kind,const wchar_t* title,DWORD style,int id=0) {
@@ -177,6 +178,7 @@ struct WinWindow {
         transcript.clear();SetWindowTextW(log,L"");
         try {session.start(opts,verify);}
         catch(const std::exception& e) {set_status(wide(e.what()));return;}
+        displayed_percent=-1;
         SendMessageW(progress,PBM_SETPOS,0,0);
         SendMessageW(progress,PBM_SETMARQUEE,TRUE,30);
         set_status(verify?L"Validating game dump...":L"Setting up... see live output below.");
@@ -192,7 +194,8 @@ struct WinWindow {
     }
     void tick() {
         std::string part;int result=0;
-        bool ended=session.consume(part,result);
+        SetupProgress update;
+        bool ended=session.consume(part,result,&update);
         if(!part.empty()) {
             if(part.find("Downloading")!=std::string::npos)set_status(L"Downloading required tools...");
             else if(part.find("Validated supported")!=std::string::npos)set_status(L"Game dump verified.");
@@ -202,6 +205,17 @@ struct WinWindow {
             SetWindowTextW(log,transcript.c_str());
             SendMessageW(log,EM_SETSEL,WPARAM(-1),LPARAM(-1));
             SendMessageW(log,EM_SCROLLCARET,0,0);
+        }
+        if(!update.stage.empty()) {
+            displayed_percent=update.percent;
+            if(displayed_percent>=0) {
+                SendMessageW(progress,PBM_SETMARQUEE,FALSE,0);
+                SendMessageW(progress,PBM_SETPOS,displayed_percent,0);
+                set_status(wide(update.stage+" ("+std::to_string(displayed_percent)+"%)"));
+            } else {
+                SendMessageW(progress,PBM_SETMARQUEE,TRUE,30);
+                set_status(wide(update.stage+"..."));
+            }
         }
         if(ended) {
             SendMessageW(progress,PBM_SETMARQUEE,FALSE,0);

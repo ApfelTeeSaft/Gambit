@@ -6,6 +6,7 @@
 #include <fstream>
 #include <cstdio>
 #include <iostream>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
@@ -70,8 +71,12 @@ fs::path locate(const fs::path& repo, const fs::path& relative, const std::strin
     if(exists_file(local)) return absolute_path(local);
     return fs::path(name);
 }
-void run(const fs::path& program, std::vector<std::string> args, const fs::path& cwd={}) {
-    auto result=execute(program,args,cwd);
+void progress(const char* stage,int percent=-1) {
+    std::cout<<"@@SPLPORT_PROGRESS\t"<<stage<<"\t"<<std::clamp(percent,-1,100)<<'\n'<<std::flush;
+}
+void run(const fs::path& program, std::vector<std::string> args, const fs::path& cwd={},
+         const OutputLine& on_line={}) {
+    auto result=execute(program,args,cwd,on_line);
     if(result!=0) {
         std::ostringstream s;s<<"Step failed: "<<program.filename().string()<<" returned "<<result;
         throw std::runtime_error(s.str());
@@ -84,21 +89,33 @@ void download(const fs::path& repo, const std::string& url, const fs::path& dest
     }
     fs::create_directories(destination.parent_path());
     auto partial=destination;partial+=".part";
-    std::error_code ec; fs::remove(partial,ec);
+    std::error_code ec;fs::remove(partial,ec);
     std::cout<<"Downloading "<<url<<"\n";
+    progress("Downloading compiler");
+    int previous=-1;
     try {
         run(locate(repo,"tools/curl",std::string("curl")+exe_suffix),{
-            "--fail","--location","--proto","=https","--proto-redir","=https",
-            "--tlsv1.2","--retry","3","--connect-timeout","30","--output",string(partial),url});
-        if(!sha.empty()) require(crypto::sha256(partial)==sha,"Downloaded file did not match its pinned SHA-256 digest");
+            "--fail","--location","--progress-bar","--proto","=https","--proto-redir","=https",
+            "--tlsv1.2","--retry","3","--connect-timeout","30","--output",string(partial),url},
+            {},[&](const std::string& line) {
+                static const std::regex percentage(R"((\d+(?:\.\d+)?)%)");
+                std::smatch match;
+                if(std::regex_search(line,match,percentage)) {
+                    int value=std::clamp(int(std::stod(match[1].str())),0,100);
+                    if(value!=previous) {previous=value;progress("Downloading compiler",value);}
+                    return false;
+                }
+                return true;
+            });
+        progress("Verifying compiler archive");
+        if(!sha.empty())require(crypto::sha256(partial)==sha,"Downloaded file did not match its pinned SHA-256 digest");
         fs::rename(partial,destination);
-    } catch(...) { fs::remove(partial,ec);throw; }
+        progress("Downloading compiler",100);
+    } catch(...) {fs::remove(partial,ec);throw;}
 }
 void extract_archive(const fs::path& repo, const fs::path& archive, const fs::path& into) {
     require(fs::is_regular_file(archive),"Archive does not exist");
     fs::create_directories(into);
-    // Prefer a bundled bsdtar where available; otherwise use host tar/unzip.
-    // The launcher does not implicitly run any script from inside the archive.
     auto tar=locate(repo,"tools/bsdtar",std::string("bsdtar")+exe_suffix);
     if(tar==fs::path(std::string("bsdtar")+exe_suffix)) {
 #ifdef _WIN32
@@ -107,13 +124,44 @@ void extract_archive(const fs::path& repo, const fs::path& archive, const fs::pa
         tar="tar";
 #endif
     }
+    const auto source=string(absolute_path(archive));
+    const auto target=string(absolute_path(into));
 #ifndef _WIN32
-    if(lower(archive.extension().string())==".zip" && tar==fs::path("tar")) {
-        run("unzip",{"-q",string(absolute_path(archive)),"-d",string(absolute_path(into))});
-        return;
-    }
+    const bool unzip=lower(archive.extension().string())==".zip" && tar==fs::path("tar");
+#else
+    const bool unzip=false;
 #endif
-    run(tar,{"-xf",string(absolute_path(archive)),"-C",string(absolute_path(into))});
+    progress("Scanning archive");
+    std::size_t total=0;
+    const auto list_command=unzip?fs::path("unzip"):tar;
+    const auto list_args=unzip?std::vector<std::string>{"-Z","-1",source}
+                              :std::vector<std::string>{"-tf",source};
+    if(execute(list_command,list_args,{},[&](const std::string& line) {
+        if(!line.empty())++total;
+        return false;
+    })!=0)throw std::runtime_error("Unable to list archive entries before extraction");
+    progress("Extracting archive",total?0:-1);
+    std::size_t done=0;
+    int last=-1;
+    auto extracted=[&](const std::string& line) {
+        bool entry=!line.empty();
+        if(unzip) {
+            entry=line.find("inflating:")!=std::string::npos ||
+                  line.find("extracting:")!=std::string::npos ||
+                  line.find("creating:")!=std::string::npos;
+        } else if(line.rfind("tar:",0)==0 || line.rfind("bsdtar:",0)==0) {
+            entry=false;
+        }
+        if(entry && total) {
+            ++done;
+            int current=int(std::min<std::size_t>(99,done*100/total));
+            if(current!=last) {last=current;progress("Extracting archive",current);}
+        }
+        return !entry;
+    };
+    if(unzip)run("unzip",{"-o",source,"-d",target},{},extracted);
+    else run(tar,{"-xvf",source,"-C",target},{},extracted);
+    progress("Extracting archive",100);
 }
 void stage_directory(const fs::path& source, const fs::path& output) {
     copy_game_tree(resolve_layout(source),output);
@@ -131,6 +179,7 @@ fs::path prepare_input(const Options& opts, const fs::path& work) {
     if(ext==".zip") {
         extract_archive(opts.repository,selected,destination);
     } else {
+        progress("Decrypting disc image");
         auto java = !opts.java.empty() ? opts.java : locate(opts.repository,"tools/java/bin",std::string("java")+exe_suffix);
         auto jwud = !opts.jwud.empty() ? opts.jwud : opts.repository/"tools/JWUDTool.jar";
         require(exists_file(jwud),"WUD/WUX extraction requires a local JWUDTool.jar in tools/ (or --jwud); no copyrighted keys are bundled");
@@ -157,6 +206,7 @@ void bootstrap_zig(const fs::path& repo, const fs::path& work) {
     auto archive=work/"downloads"/name;
     auto url=std::string("https://ziglang.org/download/")+zig_version+"/"+name;
     download(repo,url,archive,zig_sha);
+    progress("Preparing toolchain extraction");
     auto temp=work/"toolchain"/"unpacking";
     fs::remove_all(temp);
     extract_archive(repo,archive,temp);
@@ -200,6 +250,7 @@ void build_private_game(const Options& opts, const fs::path& selected, const fs:
     auto ninja=ninja_tool(repo);
     require(execute(cmake,{"--version"})==0,"CMake missing. Use the published portable launcher bundle with tools/cmake/bin/.");
     require(execute(ninja,{"--version"})==0,"Ninja missing. Use the published portable launcher bundle with tools/ninja/.");
+    progress("Preparing native compiler");
     write_toolchain(work);
     auto flags=std::vector<std::string>{"-G","Ninja","-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_MAKE_PROGRAM="+string(absolute_path(ninja)),
@@ -215,8 +266,10 @@ void build_private_game(const Options& opts, const fs::path& selected, const fs:
     std::string previous;{std::ifstream in(stamp);std::getline(in,previous);}
     if(previous!=checksum || !exists_file(generated/"Gambit_register.cpp") || function_count(generated/"Gambit_register.cpp")<96300) {
         fs::remove_all(generated);fs::create_directories(generated);
+        progress("Recompiling game code");
         run(rebrewu,{"recompile","--rpx",string(selected/"code"/"Gambit.rpx"),
                     "--output",string(generated),"--analyzer-entries",string(entry)});
+        progress("Recompiling game code",100);
         require(exists_file(generated/"Gambit_data.cpp") && exists_file(generated/"Gambit.h") &&
                 function_count(generated/"Gambit_register.cpp")>=96300,
                 "Recompiler output was incomplete. Refusing to compile an incomplete game.");
@@ -228,8 +281,24 @@ void build_private_game(const Options& opts, const fs::path& selected, const fs:
     gameArgs.push_back("-DGAMBIT_GENERATED_DIR="+string(generated));
     gameArgs.push_back("-DRBREW_BUILD_GAME=ON");
     gameArgs.push_back("-DSPLPORT_FETCH_DEPS=ON");
+    progress("Configuring game build");
     run(cmake,gameArgs);
-    run(cmake,{"--build",string(gameBuild),"--target","Gambit","--parallel","4"});
+    progress("Compiling native game");
+    int last=-1;
+    const std::regex build_step(R"(\[(\d+)/(\d+)\])");
+    run(cmake,{"--build",string(gameBuild),"--target","Gambit","--parallel","4"},{},
+        [&](const std::string& line) {
+            std::smatch match;
+            if(std::regex_search(line,match,build_step)) {
+                const auto count=std::stoull(match[1].str()),total=std::stoull(match[2].str());
+                if(total) {
+                    int value=int(std::min<unsigned long long>(99,count*100/total));
+                    if(value!=last) {last=value;progress("Compiling native game",value);}
+                }
+            }
+            return true;
+        });
+    progress("Compiling native game",100);
     auto binary=gameBuild/(std::string("Splatoon")+exe_suffix);
     if(!exists_file(binary)) binary=gameBuild/"Release"/(std::string("Splatoon")+exe_suffix);
     require(exists_file(binary),"Game executable was not produced");
@@ -240,7 +309,22 @@ void build_private_game(const Options& opts, const fs::path& selected, const fs:
 }
 }
 
-int execute(const fs::path& program, const std::vector<std::string>& args, const fs::path& cwd) {
+int execute(const fs::path& program, const std::vector<std::string>& args,
+            const fs::path& cwd, const OutputLine& on_line) {
+    std::string partial;
+    auto consume=[&](const char* data,std::size_t size) {
+        for(std::size_t i=0;i<size;++i) {
+            const char ch=data[i];
+            if(ch=='\n'||ch=='\r') {
+                if(partial.empty())continue;
+                if(!on_line || on_line(partial))std::cout<<partial<<'\n';
+                partial.clear();
+            } else if(partial.size()<32768)partial.push_back(ch);
+        }
+    };
+    auto finish=[&] {
+        if(!partial.empty() && (!on_line || on_line(partial)))std::cout<<partial<<'\n';
+    };
 #ifdef _WIN32
     std::wstring command=quote_win(program.wstring());
     for(const auto& a:args) {
@@ -251,26 +335,48 @@ int execute(const fs::path& program, const std::vector<std::string>& args, const
         command+=L" "+quote_win(wide);
     }
     std::vector<wchar_t> mutable_cmd(command.begin(),command.end());mutable_cmd.push_back(0);
-    STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION pi{};
+    SECURITY_ATTRIBUTES sec{sizeof(sec),nullptr,TRUE};
+    HANDLE reader=nullptr,writer=nullptr;
+    if(!CreatePipe(&reader,&writer,&sec,0))return -int(GetLastError());
+    SetHandleInformation(reader,HANDLE_FLAG_INHERIT,0);
+    HANDLE input=CreateFileW(L"NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,
+                              &sec,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(input==INVALID_HANDLE_VALUE) {
+        DWORD error=GetLastError();CloseHandle(reader);CloseHandle(writer);return -int(error);
+    }
+    STARTUPINFOW si{};si.cb=sizeof(si);si.dwFlags=STARTF_USESTDHANDLES;
+    si.hStdInput=input;si.hStdOutput=writer;si.hStdError=writer;
+    PROCESS_INFORMATION pi{};
     auto working=cwd.empty()?L"":absolute_path(cwd).wstring();
-    auto path=program.wstring();
-    if(!CreateProcessW(nullptr,mutable_cmd.data(),nullptr,nullptr,FALSE,0,nullptr,
-                       working.empty()?nullptr:working.c_str(),&si,&pi)) return -int(GetLastError());
+    BOOL ok=CreateProcessW(nullptr,mutable_cmd.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,
+                           nullptr,working.empty()?nullptr:working.c_str(),&si,&pi);
+    DWORD error=ok?0:GetLastError();
+    CloseHandle(input);CloseHandle(writer);
+    if(!ok){CloseHandle(reader);return -int(error);}
+    char data[8192];DWORD got=0;
+    while(ReadFile(reader,data,sizeof(data),&got,nullptr)&&got)consume(data,got);
+    CloseHandle(reader);finish();
     WaitForSingleObject(pi.hProcess,INFINITE);
-    DWORD result=0;GetExitCodeProcess(pi.hProcess,&result);
+    DWORD result=1;GetExitCodeProcess(pi.hProcess,&result);
     CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
     return int(result);
 #else
-    pid_t id=fork();if(id<0) return -1;
+    int fds[2];if(pipe(fds)!=0)return -1;
+    pid_t id=fork();if(id<0){close(fds[0]);close(fds[1]);return -1;}
     if(id==0) {
-        if(!cwd.empty() && chdir(cwd.c_str())!=0) _exit(127);
+        close(fds[0]);
+        dup2(fds[1],STDOUT_FILENO);dup2(fds[1],STDERR_FILENO);close(fds[1]);
+        if(!cwd.empty() && chdir(cwd.c_str())!=0)_exit(127);
         std::string prog=program.string();
         std::vector<std::string> owned{prog};owned.insert(owned.end(),args.begin(),args.end());
-        std::vector<char*> argv;for(auto& a:owned) argv.push_back(a.data());argv.push_back(nullptr);
+        std::vector<char*> argv;for(auto& a:owned)argv.push_back(a.data());argv.push_back(nullptr);
         execvp(prog.c_str(),argv.data());_exit(127);
     }
-    int status=0;if(waitpid(id,&status,0)<0) return -1;
-    if(WIFEXITED(status)) return WEXITSTATUS(status);
+    close(fds[1]);char data[8192];ssize_t got=0;
+    while((got=read(fds[0],data,sizeof(data)))>0)consume(data,std::size_t(got));
+    close(fds[0]);finish();
+    int status=0;if(waitpid(id,&status,0)<0)return -1;
+    if(WIFEXITED(status))return WEXITSTATUS(status);
     return -1;
 #endif
 }
@@ -307,6 +413,12 @@ void copy_game_tree(const fs::path& source, const fs::path& destination) {
     require(std::mismatch(source_path.begin(),source_path.end(),
                           destination_path.begin(),destination_path.end()).first!=source_path.end(),
             "Destination cannot be nested inside the selected ROM source");
+    progress("Copying game files");
+    std::size_t total=0;
+    for(auto dirname:{"code","content","meta"})
+        for(auto& entry:fs::recursive_directory_iterator(source/dirname))
+            if(entry.is_regular_file())++total;
+    std::size_t copied=0;int last=-1;
     // Symlinks are not followed: only regular files in the user's own dump are copied.
     for(auto dirname:{"code","content","meta"}) {
         auto root=source/dirname;
@@ -318,9 +430,15 @@ void copy_game_tree(const fs::path& source, const fs::path& destination) {
             else if(it->is_regular_file()) {
                 fs::create_directories(target.parent_path());
                 fs::copy_file(it->path(),target,fs::copy_options::overwrite_existing);
+                ++copied;
+                if(total) {
+                    int current=int(std::min<std::size_t>(99,copied*100/total));
+                    if(current!=last){last=current;progress("Copying game files",current);}
+                }
             } else throw std::runtime_error("Unsupported file type inside dump");
         }
     }
+    progress("Copying game files",100);
 }
 
 std::string select_input() {
@@ -382,10 +500,12 @@ int install(const Options& user) {
     }
     if(opts.rom.empty()) opts.rom=select_input();
     require(!opts.rom.empty(),"No ROM dump selected");
+    progress("Validating game dump");
     fs::path source;
     if(opts.validate_only && fs::is_directory(opts.rom)) source=resolve_layout(opts.rom);
     else source=prepare_input(opts,work);
     validate_dump(source);
+    progress("Validating game dump",100);
     std::cout<<"Validated supported Splatoon EUR v16 dump.\n";
     if(opts.validate_only) return 0;
     std::cout<<"This setup downloads an official Zig compiler and builds game-derived code locally.\n";

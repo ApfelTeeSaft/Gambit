@@ -15,13 +15,17 @@ int main(int argc,char** argv) {
     std::string output;
     int status=0;
     bool done=false;
+    bool saw_progress=false;
     for(int i=0;i<200 && !done;++i) {
         std::string part;
-        done=session.consume(part,status);
+        spl::SetupProgress progress;
+        done=session.consume(part,status,&progress);
+        if(progress.stage=="Validating game dump"&&progress.percent==-1)saw_progress=true;
         output+=part;
         if(!done)std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
-    if(!done || status==0 || output.find("does not exist")==std::string::npos)
+    if(!done || status==0 || !saw_progress || output.find("@@SPLPORT_PROGRESS")!=std::string::npos ||
+       output.find("does not exist")==std::string::npos)
         throw std::runtime_error("Session did not return the expected CLI error: " + output);
     std::cout<<"GUI process/session test passed\n";
 }

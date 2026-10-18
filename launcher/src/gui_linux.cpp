@@ -100,6 +100,7 @@ struct Window {
     bool exit_requested=false;
     bool installed=false;
     bool last_validation=false;
+    int displayed_percent=-1;
     std::string transcript;
     explicit Window(Options o,const fs::path& exe):opts(std::move(o)),session(exe) {
         if(!g.gtk_init_check(nullptr,nullptr)) throw std::runtime_error("No graphical Linux session found (use --cli for headless mode)");
@@ -210,6 +211,8 @@ struct Window {
             g.gtk_label_set_text(status,"The selected dump does not exist.");return;
         }
         last_validation=validation;
+        displayed_percent=-1;
+        g.gtk_progress_bar_set_fraction(progress,0.0);
         transcript.clear();
         g.gtk_text_buffer_set_text(g.gtk_text_view_get_buffer(log),"",-1);
         try {session.start(opts,validation);}
@@ -233,9 +236,20 @@ struct Window {
     static Boolean tick_cb(void* data) {
         auto& s=*static_cast<Window*>(data);
         std::string log;int result=0;
-        bool finished=s.session.consume(log,result);
+        SetupProgress update;
+        bool finished=s.session.consume(log,result,&update);
         if(!log.empty())s.append(std::move(log));
-        if(s.session.running())s.g.gtk_progress_bar_pulse(s.progress);
+        if(!update.stage.empty()) {
+            s.displayed_percent=update.percent;
+            if(update.percent>=0) {
+                s.g.gtk_progress_bar_set_fraction(s.progress,update.percent/100.0);
+                s.g.gtk_label_set_text(s.status,
+                    (update.stage+" ("+std::to_string(update.percent)+"%)").c_str());
+            } else {
+                s.g.gtk_label_set_text(s.status,(update.stage+"...").c_str());
+            }
+        }
+        if(s.session.running()&&s.displayed_percent<0)s.g.gtk_progress_bar_pulse(s.progress);
         if(finished) {
             s.g.gtk_progress_bar_set_fraction(s.progress,result==0?1.0:0.0);
             s.g.gtk_label_set_text(s.status,result==0?"Operation completed successfully.":"Setup failed or was cancelled; review the log.");

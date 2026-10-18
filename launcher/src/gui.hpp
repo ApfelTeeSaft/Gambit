@@ -8,6 +8,10 @@
 #include <vector>
 
 namespace spl {
+struct SetupProgress {
+    std::string stage;
+    int percent=-1;
+};
 class SetupSession {
 public:
     explicit SetupSession(fs::path executable);
@@ -17,7 +21,7 @@ public:
     void start(const Options& options, bool validate_only);
     void cancel();
     bool running() const { return busy_.load(); }
-    bool consume(std::string& log, int& result);
+    bool consume(std::string& log, int& result, SetupProgress* progress = nullptr);
     bool can_launch(const fs::path& output) const;
 private:
     void worker(std::vector<std::string> args);
@@ -26,6 +30,9 @@ private:
     std::thread thread_;
     std::mutex mutex_;
     std::string pending_;
+    std::string incoming_line_;
+    SetupProgress progress_;
+    bool progress_changed_=false;
     std::atomic<bool> busy_{false};
     std::atomic<bool> finished_{false};
     std::atomic<bool> cancelling_{false};
