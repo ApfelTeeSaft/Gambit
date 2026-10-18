@@ -6,6 +6,7 @@
 #include <fstream>
 #include <cstdio>
 #include <iostream>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
@@ -240,7 +241,22 @@ void build_private_game(const Options& opts, const fs::path& selected, const fs:
 }
 }
 
-int execute(const fs::path& program, const std::vector<std::string>& args, const fs::path& cwd) {
+int execute(const fs::path& program, const std::vector<std::string>& args,
+            const fs::path& cwd, const OutputLine& on_line) {
+    std::string partial;
+    auto consume=[&](const char* data,std::size_t size) {
+        for(std::size_t i=0;i<size;++i) {
+            const char ch=data[i];
+            if(ch=='\n'||ch=='\r') {
+                if(partial.empty())continue;
+                if(!on_line || on_line(partial))std::cout<<partial<<'\n';
+                partial.clear();
+            } else if(partial.size()<32768)partial.push_back(ch);
+        }
+    };
+    auto finish=[&] {
+        if(!partial.empty() && (!on_line || on_line(partial)))std::cout<<partial<<'\n';
+    };
 #ifdef _WIN32
     std::wstring command=quote_win(program.wstring());
     for(const auto& a:args) {
@@ -251,26 +267,48 @@ int execute(const fs::path& program, const std::vector<std::string>& args, const
         command+=L" "+quote_win(wide);
     }
     std::vector<wchar_t> mutable_cmd(command.begin(),command.end());mutable_cmd.push_back(0);
-    STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION pi{};
+    SECURITY_ATTRIBUTES sec{sizeof(sec),nullptr,TRUE};
+    HANDLE reader=nullptr,writer=nullptr;
+    if(!CreatePipe(&reader,&writer,&sec,0))return -int(GetLastError());
+    SetHandleInformation(reader,HANDLE_FLAG_INHERIT,0);
+    HANDLE input=CreateFileW(L"NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,
+                              &sec,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(input==INVALID_HANDLE_VALUE) {
+        DWORD error=GetLastError();CloseHandle(reader);CloseHandle(writer);return -int(error);
+    }
+    STARTUPINFOW si{};si.cb=sizeof(si);si.dwFlags=STARTF_USESTDHANDLES;
+    si.hStdInput=input;si.hStdOutput=writer;si.hStdError=writer;
+    PROCESS_INFORMATION pi{};
     auto working=cwd.empty()?L"":absolute_path(cwd).wstring();
-    auto path=program.wstring();
-    if(!CreateProcessW(nullptr,mutable_cmd.data(),nullptr,nullptr,FALSE,0,nullptr,
-                       working.empty()?nullptr:working.c_str(),&si,&pi)) return -int(GetLastError());
+    BOOL ok=CreateProcessW(nullptr,mutable_cmd.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,
+                           nullptr,working.empty()?nullptr:working.c_str(),&si,&pi);
+    DWORD error=ok?0:GetLastError();
+    CloseHandle(input);CloseHandle(writer);
+    if(!ok){CloseHandle(reader);return -int(error);}
+    char data[8192];DWORD got=0;
+    while(ReadFile(reader,data,sizeof(data),&got,nullptr)&&got)consume(data,got);
+    CloseHandle(reader);finish();
     WaitForSingleObject(pi.hProcess,INFINITE);
-    DWORD result=0;GetExitCodeProcess(pi.hProcess,&result);
+    DWORD result=1;GetExitCodeProcess(pi.hProcess,&result);
     CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
     return int(result);
 #else
-    pid_t id=fork();if(id<0) return -1;
+    int fds[2];if(pipe(fds)!=0)return -1;
+    pid_t id=fork();if(id<0){close(fds[0]);close(fds[1]);return -1;}
     if(id==0) {
-        if(!cwd.empty() && chdir(cwd.c_str())!=0) _exit(127);
+        close(fds[0]);
+        dup2(fds[1],STDOUT_FILENO);dup2(fds[1],STDERR_FILENO);close(fds[1]);
+        if(!cwd.empty() && chdir(cwd.c_str())!=0)_exit(127);
         std::string prog=program.string();
         std::vector<std::string> owned{prog};owned.insert(owned.end(),args.begin(),args.end());
-        std::vector<char*> argv;for(auto& a:owned) argv.push_back(a.data());argv.push_back(nullptr);
+        std::vector<char*> argv;for(auto& a:owned)argv.push_back(a.data());argv.push_back(nullptr);
         execvp(prog.c_str(),argv.data());_exit(127);
     }
-    int status=0;if(waitpid(id,&status,0)<0) return -1;
-    if(WIFEXITED(status)) return WEXITSTATUS(status);
+    close(fds[1]);char data[8192];ssize_t got=0;
+    while((got=read(fds[0],data,sizeof(data)))>0)consume(data,std::size_t(got));
+    close(fds[0]);finish();
+    int status=0;if(waitpid(id,&status,0)<0)return -1;
+    if(WIFEXITED(status))return WEXITSTATUS(status);
     return -1;
 #endif
 }
