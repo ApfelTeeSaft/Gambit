@@ -29,12 +29,6 @@ SplatoonSetup --help
 
 For WUX/WUD, supply `tools/JWUDTool.jar` and `tools/java/bin/java` (`java.exe` on Windows), or pass `--jwud` and `--java`. Decryption keys must be provided by the owner, and the base disc may need the supported update installed separately.
 
-**Building `SplatoonSetup` also builds the RebrewU executable** through CMake `ExternalProject`, keeping RebrewU's independent CMake project intact. `package_release` stages both binaries alongside the standalone runtime source and profiles in `build-dev/dist/SplatoonPort/`. It excludes generated game code and assets. Local development needs a native compiler, Ninja/CMake and a zlib development package; end users download binaries instead.
-
-`recompiler/` is a **real pinned Git submodule** of `https://github.com/ApfelTeeSaft/RebrewU`. If an existing clone has not initialized it, run `git submodule update --init --recursive`. To intentionally upgrade the version, run `git -C recompiler fetch origin` and commit the updated gitlink after testing. Do not commit RebrewU source files into this monorepo. The separate `port/` directory holds game-specific host runtime code and can be updated independently.
-
-The CI workflow tests Windows and Linux, including a Linux GUI startup smoke test under Xvfb, and creates `SplatoonPort-Windows-x64.zip` and `SplatoonPort-Linux-x64.zip`. Pushing a `v*` tag publishes both ZIPs into a GitHub Release after the build matrix passes. CI does not download ROMs or compile generated game code.
-
 ## Credits
 
 **Project supervisor:** ApfelTeeSaft. **Major contribution:** NEVES, who supplied a substantial amount of Claude Code usage/tokens to support development.
