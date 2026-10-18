@@ -19,4 +19,17 @@ bool append_gui_log(std::basic_string<Char>& log, const std::basic_string<Char>&
     log.erase(0, start);
     return true;
 }
+inline std::wstring windows_log_newlines(const std::wstring& text) {
+    std::wstring out;
+    out.reserve(text.size() + text.size()/8);
+    for(std::size_t i=0;i<text.size();++i) {
+        if(text[i]==L'\r') {
+            out+=L"\r\n";
+            if(i+1<text.size() && text[i+1]==L'\n')++i;
+        } else if(text[i]==L'\n')out+=L"\r\n";
+        else out+=text[i];
+    }
+    return out;
+}
+
 }
