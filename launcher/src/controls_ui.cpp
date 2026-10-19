@@ -121,7 +121,11 @@ struct Editor {
         selected_key=active.controller_mode ?
             (!active.controller_key.empty()?active.controller_key:active.controller_guid) : "keyboard";
         config=active;
-        drafts[selected_key]=active;
+        if(selected_key.empty() || (!valid_device_key(selected_key)&&selected_key!="keyboard")) {
+            selected_key="keyboard";
+            config=defaults();
+        }
+        drafts[selected_key]=config;
     }
     ~Editor() {
         close_device();
