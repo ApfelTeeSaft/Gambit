@@ -150,15 +150,16 @@ struct Window {
         signal(out,"changed",output_changed_cb);
         row_field(base,"Java executable for encrypted WUD/WUX (optional)",java,opts.java.string(),"Browse",java_cb);
         row_field(base,"JWUDTool.jar for encrypted WUD/WUX (optional)",jwud,opts.jwud.string(),"Browse",jwud_cb);
+        auto* preferences=g.gtk_box_new(0,8);add(base,preferences);
         launch_when_done=g.gtk_check_button_new_with_label("Launch game when setup completes");
-        g.gtk_toggle_button_set_active(launch_when_done,!opts.no_launch);add(base,launch_when_done);
+        g.gtk_toggle_button_set_active(launch_when_done,!opts.no_launch);add(preferences,launch_when_done,true);
+        controls_button=button(preferences,"Controls...",controls_cb);
         auto* actions=g.gtk_box_new(0,8);add(base,actions);
         start=button(actions,"Install / Rebuild",start_cb);
         verify=button(actions,"Validate dump",verify_cb);
         launch=button(actions,"Launch installed game",launch_cb);
         cancel=button(actions,"Cancel setup",cancel_cb);
         open_log_button=button(actions,"Open full log",log_cb);
-        controls_button=button(actions,"Controls...",controls_cb);
         progress=g.gtk_progress_bar_new();add(base,progress);
         status=text(installed?"Existing installation found. You can launch it or select a new dump.":"Ready to set up.");
         add(base,status);
