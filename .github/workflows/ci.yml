@@ -87,12 +87,18 @@ jobs:
               https://ziglang.org/download/0.14.1/zig-x86_64-windows-0.14.1.zip
             echo "554f5378228923ffd558eac35e21af020c73789d87afeabf4bfd16f2e6feed2c  _ci/zig-windows.zip" | sha256sum -c -
             7z x _ci/zig-windows.zip -o_ci/zig > /dev/null
-            zig=_ci/zig/zig-x86_64-windows-0.14.1/zig.exe
-            "$zig" c++ -std=c++20 -I"$shader" -include Standalone.h \
-              -fsyntax-only "$coord"
-            "$zig" c++ -std=c++20 -I"$shader" \
-              tests/cmake/cemu_bit_scan.cpp -o _ci/cemu_bit_scan.exe
-            _ci/cemu_bit_scan.exe
+            zig="$(cygpath -m "$PWD/_ci/zig/zig-x86_64-windows-0.14.1/zig.exe")"
+            shader_native="$(cygpath -m "$PWD/$shader")"
+            coord_native="$(cygpath -m "$PWD/$coord")"
+            test_native="$(cygpath -m "$PWD/tests/cmake/cemu_bit_scan.cpp")"
+            test_exe="$(cygpath -m "$PWD/_ci/cemu_bit_scan.exe")"
+            test -f "$coord"
+            "$zig" version
+            "$zig" c++ -std=gnu++20 -I"$shader_native" -include Standalone.h \
+              -O3 -DNDEBUG -c "$coord_native" -o "$(cygpath -m "$PWD/_ci/LatteAddrLib_Coord.obj")"
+            "$zig" c++ -std=c++20 -I"$shader_native" \
+              "$test_native" -o "$test_exe"
+            "$test_exe"
           else
             c++ -std=c++20 -I"$shader" -include Standalone.h \
               -fsyntax-only "$coord"
