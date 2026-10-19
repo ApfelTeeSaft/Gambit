@@ -229,7 +229,7 @@ struct Editor {
         }
     }
     void click(int x,int y,int button) {
-        if(capture_row>=0) {capture_event(SDL_Event{.type=0});return;}
+        if(capture_row>=0)return;
         if(y>=55&&y<91){if(x>16&&x<55)cycle(-1);else if(x>979&&x<1032)cycle(1);return;}
         if(y>=105&&y<144){
             if(x>30&&x<355){config.mouse_camera=!config.mouse_camera;return;}
