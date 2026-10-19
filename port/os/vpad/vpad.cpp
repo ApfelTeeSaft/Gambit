@@ -245,32 +245,33 @@ static const spl_controls::Config& input_config() {
     }();
     return config;
 }
-static bool controller_matches(SDL_GameController* gc, const std::string& guid) {
-    if(guid.empty())return true;
-    char actual[33]{};
-    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(SDL_GameControllerGetJoystick(gc)),actual,sizeof(actual));
-    return guid==actual;
-}
-static SDL_GameController* open_controller() {
-    static SDL_GameController* s_gc = nullptr;
-    if (s_gc && SDL_GameControllerGetAttached(s_gc)) return s_gc;
-    if (s_gc) { SDL_GameControllerClose(s_gc); s_gc = nullptr; }
-    const auto& configured=input_config().controller_guid;
-    int best=-1;
+struct InputDevice {
+    SDL_GameController* mapped=nullptr;
+    SDL_Joystick* raw=nullptr;
+    SDL_JoystickID instance=-1;
+};
+static InputDevice& open_device() {
+    static InputDevice device;
+    if(device.instance>=0 && (device.mapped ?
+        SDL_GameControllerGetAttached(device.mapped) : SDL_JoystickGetAttached(device.raw)))return device;
+    if(device.mapped)SDL_GameControllerClose(device.mapped);
+    if(device.raw)SDL_JoystickClose(device.raw);
+    device={};
+    const auto& guid=input_config().controller_guid;
+    int selected=-1;
     for(int i=0;i<SDL_NumJoysticks();++i) {
-        if(!SDL_IsGameController(i))continue;
-        if(best<0)best=i;
-        if(configured.empty())break;
-        SDL_JoystickGUID id=SDL_JoystickGetDeviceGUID(i);
-        char guid[33]{};
-        SDL_JoystickGetGUIDString(id,guid,sizeof(guid));
-        if(configured==guid){best=i;break;}
+        if(selected<0)selected=i;
+        if(guid.empty())break;
+        char id[33]{};
+        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(i),id,sizeof(id));
+        if(guid==id){selected=i;break;}
     }
-    if(best>=0)s_gc=SDL_GameControllerOpen(best);
-    if(s_gc) {
-        RBREW_LOGF(stderr,"[vpad] selected SDL controller '%s'\n",SDL_GameControllerName(s_gc));
-    }
-    return s_gc;
+    if(selected<0)return device;
+    if(SDL_IsGameController(selected))device.mapped=SDL_GameControllerOpen(selected);
+    if(!device.mapped)device.raw=SDL_JoystickOpen(selected);
+    SDL_Joystick* joy=device.mapped?SDL_GameControllerGetJoystick(device.mapped):device.raw;
+    if(joy)device.instance=SDL_JoystickInstanceID(joy);
+    return device;
 }
 #endif
 
@@ -300,9 +301,11 @@ static void VPADRead(CPUState* cpu) {
 
 #if defined(HAVE_SDL2)
     const auto& bindings=input_config();
-    SDL_GameController* gc=open_controller();
+    auto& selected=open_device();
+    SDL_GameController* gc=selected.mapped;
+    SDL_Joystick* raw=selected.raw;
     auto gamepad=[&](spl_controls::Action action) {
-        return spl_controls::gamepad(bindings.binding[action],gc);
+        return spl_controls::gamepad(bindings.binding[action],gc,raw);
     };
     static constexpr struct {spl_controls::Action action;uint32_t bit;} kButtons[]={
         {spl_controls::A,VPAD_BUTTON_A},{spl_controls::B,VPAD_BUTTON_B},
@@ -317,10 +320,10 @@ static void VPADRead(CPUState* cpu) {
         {spl_controls::RightClick,VPAD_BUTTON_STICK_R}
     };
     for(const auto& entry:kButtons)if(gamepad(entry.action))buttons|=entry.bit;
-    lx=spl_controls::axis_value(bindings.axes[0],gc);
-    ly=spl_controls::axis_value(bindings.axes[1],gc);
-    rx=spl_controls::axis_value(bindings.axes[2],gc);
-    ry=spl_controls::axis_value(bindings.axes[3],gc);
+    lx=spl_controls::axis_value(bindings.axes[0],gc,raw);
+    ly=spl_controls::axis_value(bindings.axes[1],gc,raw);
+    rx=spl_controls::axis_value(bindings.axes[2],gc,raw);
+    ry=spl_controls::axis_value(bindings.axes[3],gc,raw);
     auto digital=[&](spl_controls::Action negative, spl_controls::Action positive, float& value) {
         const bool lo=gamepad(negative),hi=gamepad(positive);
         if(lo||hi)value=float(int(hi)-int(lo));
