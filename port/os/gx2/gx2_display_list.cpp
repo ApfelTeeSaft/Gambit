@@ -8,6 +8,7 @@
 #include "gx2_addrs.h"
 #include "../os_common.h"
 #include "gx2_write_watch.h"
+#include "gx2_safe_read.h"
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -487,9 +488,18 @@ void mark_tags(const uint8_t* begin, size_t bytes, uint32_t limit, uint64_t* liv
 }
 // False if the memory faulted (a protection change during the scan).
 bool mark_tags_guarded(const uint8_t* begin, size_t bytes, uint32_t limit, uint64_t* live) {
-#if defined(_WIN32)
+#if defined(_WIN32) && defined(_MSC_VER) && !defined(__clang__)
     __try { mark_tags(begin, bytes, limit, live); }
     __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) { return false; }
+    return true;
+#elif defined(_WIN32)
+    // Windows Zig/Clang does not support MSVC SEH. Read into an owned
+    // snapshot so an overlay unmapping concurrently makes the sweep
+    // inconclusive instead of crashing or freeing live display lists.
+    thread_local std::vector<uint32_t> snapshot;
+    snapshot.resize((bytes + sizeof(uint32_t) - 1) / sizeof(uint32_t));
+    if (!gx2_safe_read::copy(begin, snapshot.data(), bytes)) return false;
+    mark_tags(reinterpret_cast<const uint8_t*>(snapshot.data()), bytes, limit, live);
     return true;
 #else
     mark_tags(begin, bytes, limit, live); return true;
