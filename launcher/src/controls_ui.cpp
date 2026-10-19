@@ -267,9 +267,33 @@ struct Editor {
             }
         }
     }
+    bool save_all() {
+        cache();
+        for(const auto& [key,layout]:drafts) {
+            const auto path=profile_path(destination.parent_path(),key);
+            if(path.empty()||!save(path,layout)) {
+                state="Could not save device profile: "+key;
+                return false;
+            }
+        }
+        if(!save(destination,config)) {
+            state="Could not save active input device";
+            return false;
+        }
+        return true;
+    }
     void click(int x,int y,int button) {
         if(capture_row>=0)return;
-        if(y>=55&&y<91){if(x>16&&x<55)cycle(-1);else if(x>979&&x<1032)cycle(1);return;}
+        if(dropdown_open) {
+            if(y>=93 && y<93+std::min(9,int(choices().size()))*33 && x>=23&&x<=1028) {
+                const auto list=choices();
+                const int n=dropdown_scroll+(y-93)/33;
+                if(n>=0&&n<int(list.size()))choose_device(list[n].index,list[n].key);
+            }
+            dropdown_open=false;
+            return;
+        }
+        if(y>=55&&y<94){dropdown_open=true;dropdown_scroll=0;return;}
         if(y>=105&&y<144){
             if(x>30&&x<355){config.mouse_camera=!config.mouse_camera;return;}
             if(x>460&&x<518)config.mouse_sensitivity=std::max(0.0001f,config.mouse_sensitivity*0.8f);
@@ -279,39 +303,71 @@ struct Editor {
         if(y>=top_y&&y<top_y+view_rows*row_height) {
             const int row=scroll+(y-top_y)/row_height;
             if(row>=entries())return;
-            const int column=x<340? -1 : x<655?0:1;
-            if(column<0 || (column==0&&row>=ActionCount))return;
-            if(column==1&&!active_joystick()){state="Connect a controller first";return;}
+            const int column=config.controller_mode?1:0;
+            if((column==0&&(x<340||x>=655))||
+               (column==1&&(x<660||x>=1026)))return;
+            if(row>=ActionCount&&column==0)return;
+            if(column==1&&!active_joystick()){
+                state="Selected controller is disconnected. Connect it to capture inputs.";
+                return;
+            }
             if(button==SDL_BUTTON_RIGHT&&column==1&&row>=ActionCount) {
                 config.axes[row-ActionCount].inverted=!config.axes[row-ActionCount].inverted;
                 state="Stick axis direction inverted";return;
             }
             capture_row=row;capture_column=column;
             state=column==0?"Press a key or mouse button (Delete clears; Esc cancels)":
-                "Press a gamepad button / move an axis (Delete clears)";
+                "Press selected controller button / move an axis (Delete clears)";
             return;
         }
         if(y>=681&&y<745) {
-            if(x>24&&x<315){saved=save(destination,config);state=saved?"Controls saved":"Could not write controls.ini";if(saved)done=true;}
-            else if(x>357&&x<643){const auto guid=config.controller_guid;config=defaults();config.controller_guid=guid;state="Reset to original controls (save to apply)";}
-            else if(x>702&&x<1020){done=true;}
+            if(x>24&&x<315){
+                saved=save_all();
+                if(saved){state="Saved active device and profiles";done=true;}
+            }else if(x>357&&x<643){
+                const bool controller=config.controller_mode;
+                const auto guid=config.controller_guid,key=config.controller_key;
+                config=defaults();config.controller_mode=controller;
+                if(controller){config.controller_guid=guid;config.controller_key=key;config.mouse_camera=false;}
+                state="Restored current device defaults (save to apply)";
+            }else if(x>702&&x<1020)done=true;
         }
     }
     void event(const SDL_Event& e) {
         if(e.type==SDL_QUIT){done=true;return;}
-        if(e.type==SDL_CONTROLLERDEVICEADDED||e.type==SDL_JOYDEVICEADDED) {
-            if(device_index<0)cycle(0);
+        if(e.type==SDL_CONTROLLERDEVICEADDED||e.type==SDL_JOYDEVICEADDED ||
+           e.type==SDL_CONTROLLERDEVICEREMOVED||e.type==SDL_JOYDEVICEREMOVED) {
+            const auto list=choices();
+            bool attached=false;
+            for(const auto& choice:list) {
+                if(choice.index<0 || choice.key!=selected_key)continue;
+                attached=true;
+                if(!active_joystick()||!SDL_JoystickGetAttached(active_joystick())) {
+                    close_device();device_index=choice.index;
+                    if(SDL_IsGameController(choice.index))mapped=SDL_GameControllerOpen(choice.index);
+                    if(!mapped)joystick=SDL_JoystickOpen(choice.index);
+                }
+                break;
+            }
+            if(!attached&&config.controller_mode) {
+                close_device();device_index=-2;
+                state="Configured controller disconnected. Layout stays selected.";
+            }
         }
-        if(e.type==SDL_CONTROLLERDEVICEREMOVED||e.type==SDL_JOYDEVICEREMOVED) {
-            if(active_joystick()&&!SDL_JoystickGetAttached(active_joystick()))cycle(0);
-        }
-        if(capture_row>=0) {capture_event(e);return;}
+        if(capture_row>=0){capture_event(e);return;}
         if(e.type==SDL_MOUSEBUTTONDOWN)click(e.button.x,e.button.y,e.button.button);
-        else if(e.type==SDL_MOUSEWHEEL)
-            scroll=std::clamp(scroll-e.wheel.y,0,std::max(0,entries()-view_rows));
-        else if(e.type==SDL_KEYDOWN) {
-            if(e.key.keysym.sym==SDLK_ESCAPE)done=true;
-            else if(e.key.keysym.sym==SDLK_PAGEDOWN)scroll=std::min(entries()-view_rows,scroll+view_rows);
+        else if(e.type==SDL_MOUSEWHEEL) {
+            if(dropdown_open)dropdown_scroll=std::clamp(dropdown_scroll-e.wheel.y,0,
+                std::max(0,int(choices().size())-9));
+            else scroll=std::clamp(scroll-e.wheel.y,0,std::max(0,entries()-view_rows));
+        }else if(e.type==SDL_KEYDOWN) {
+            if(e.key.keysym.sym==SDLK_ESCAPE){
+                if(dropdown_open)dropdown_open=false;else done=true;
+            }else if(dropdown_open) {
+                if(e.key.keysym.sym==SDLK_DOWN)dropdown_scroll=std::min(
+                    std::max(0,int(choices().size())-9),dropdown_scroll+1);
+                if(e.key.keysym.sym==SDLK_UP)dropdown_scroll=std::max(0,dropdown_scroll-1);
+            }else if(e.key.keysym.sym==SDLK_PAGEDOWN)scroll=std::min(entries()-view_rows,scroll+view_rows);
             else if(e.key.keysym.sym==SDLK_PAGEUP)scroll=std::max(0,scroll-view_rows);
         }
     }
