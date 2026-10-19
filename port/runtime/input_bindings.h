@@ -201,7 +201,7 @@ inline const Config& installed() {
     static const Config c=[] {
         char* base=SDL_GetBasePath();
         if(!base)return defaults();
-        const std::filesystem::path location=std::filesystem::path(base)/"controls.ini";
+        const std::filesystem::path location=std::filesystem::u8path(base)/"controls.ini";
         SDL_free(base);
         return load(location);
     }();
