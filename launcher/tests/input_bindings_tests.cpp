@@ -118,6 +118,7 @@ int main() {
         legacy<<"controller_guid=030000005e0400008e02000014010000\n";
     }
     CHECK(load_selected(dir).controller_mode);
+    CHECK(!load_selected(dir).mouse_camera);
     std::error_code ec;
     std::filesystem::remove_all(dir,ec);
     std::cout<<"Controller/key/mouse binding defaults and persistence passed\n";
