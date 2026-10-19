@@ -63,6 +63,61 @@ int main() {
     CHECK(invalid.controller_guid.empty());
     CHECK(invalid.mouse_camera);
     CHECK(std::abs(invalid.mouse_sensitivity-0.005f)<0.00001f);
+    // A selected controller has an independent binding file; switching back to
+    // keyboard/mouse must not inherit button assignments from that controller.
+    const std::string deviceA="030000005e0400008e02000014010000-1234567890abcdef";
+    const std::string deviceB="030000005e0400008e02000014010000-fedcba0987654321";
+    CHECK(valid_device_key(deviceA));
+    CHECK(valid_device_key(deviceB));
+    CHECK(!valid_device_key("../../etc/passwd"));
+    const auto pa=profile_path(dir,deviceA);
+    const auto pb=profile_path(dir,deviceB);
+    CHECK(pa!=pb);
+    Config padA=defaults();
+    padA.controller_mode=true;
+    padA.mouse_camera=false;
+    padA.controller_key=deviceA;
+    padA.controller_guid=deviceA.substr(0,32);
+    padA.binding[ZR].pad_button=SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+    padA.binding[ZR].pad_axis=-1;
+    CHECK(save(pa,padA));
+    Config padB=padA;
+    padB.controller_key=deviceB;
+    padB.binding[ZR].pad_button=SDL_CONTROLLER_BUTTON_X;
+    CHECK(save(pb,padB));
+    CHECK(save(path,padA));
+    Config activeA=load_selected(dir);
+    CHECK(activeA.controller_mode);
+    CHECK(activeA.controller_key==deviceA);
+    CHECK(activeA.binding[ZR].pad_button==SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+    CHECK(!activeA.mouse_camera);
+    CHECK(read_profile(dir,deviceB).binding[ZR].pad_button==SDL_CONTROLLER_BUTTON_X);
+    CHECK(save(path,padB));
+    CHECK(load_selected(dir).binding[ZR].pad_button==SDL_CONTROLLER_BUTTON_X);
+    Config kb=defaults();
+    kb.binding[B].key=SDL_SCANCODE_H;
+    CHECK(save(profile_path(dir,"keyboard"),kb));
+    CHECK(save(path,kb));
+    const auto activeKb=load_selected(dir);
+    CHECK(!activeKb.controller_mode);
+    CHECK(activeKb.binding[B].key==SDL_SCANCODE_H);
+    CHECK(read_profile(dir,deviceA).binding[ZR].pad_button==SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+    // Missing matching controller profile retains the explicit selection,
+    // never inherits bindings from another controller.
+    Config offline=defaults();
+    offline.controller_mode=true;offline.controller_key=deviceA;
+    offline.controller_guid=deviceA.substr(0,32);
+    CHECK(save(path,offline));
+    std::filesystem::remove(pa);
+    const auto unavailable=load_selected(dir);
+    CHECK(unavailable.controller_mode);
+    CHECK(unavailable.controller_key==deviceA);
+    // Legacy v1 files without an explicit mode keep their controller choice.
+    {
+        std::ofstream legacy(path,std::ios::trunc);
+        legacy<<"controller_guid=030000005e0400008e02000014010000\n";
+    }
+    CHECK(load_selected(dir).controller_mode);
     std::error_code ec;
     std::filesystem::remove_all(dir,ec);
     std::cout<<"Controller/key/mouse binding defaults and persistence passed\n";
