@@ -49,4 +49,5 @@ private:
 #endif
 };
 int run_gui(const Options& options, const fs::path& executable);
+bool open_controls_editor(const fs::path& installed_game_directory);
 }
