@@ -148,6 +148,8 @@ jobs:
           fi
       - name: Build both tools from one target
         run: cmake --build _ci/build --target SplatoonSetup --config Release --parallel 4
+      - name: Compile SDL VPAD bindings and input tests
+        run: cmake --build _ci/build --target vpad_compile_probe input_bindings_tests --config Release --parallel 4
       - name: Run tests
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
@@ -160,6 +162,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           timeout 15s xvfb-run -a env SPLATOON_GUI_SMOKE_TEST=1 _ci/build/launcher/SplatoonSetup
+          timeout 15s xvfb-run -a env SPLATOON_CONTROLS_SMOKE_TEST=1 _ci/build/launcher/SplatoonSetup --controls _ci/controller-smoke
       - name: Package complete native release
         run: cmake --build _ci/build --target package_release --config Release --parallel 4
       - name: Check packaged binaries

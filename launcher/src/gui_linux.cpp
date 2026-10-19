@@ -100,7 +100,7 @@ struct Window {
     Options opts;
     SetupSession session;
     Widget *win=nullptr,*rom=nullptr,*out=nullptr,*java=nullptr,*jwud=nullptr;
-    Widget *status=nullptr,*progress=nullptr,*log=nullptr,*start=nullptr,*verify=nullptr,*launch=nullptr,*cancel=nullptr,*open_log_button=nullptr;
+    Widget *status=nullptr,*progress=nullptr,*log=nullptr,*start=nullptr,*verify=nullptr,*launch=nullptr,*cancel=nullptr,*open_log_button=nullptr,*controls_button=nullptr;
     Widget *launch_when_done=nullptr;
     bool exit_requested=false;
     bool installed=false;
@@ -150,8 +150,10 @@ struct Window {
         signal(out,"changed",output_changed_cb);
         row_field(base,"Java executable for encrypted WUD/WUX (optional)",java,opts.java.string(),"Browse",java_cb);
         row_field(base,"JWUDTool.jar for encrypted WUD/WUX (optional)",jwud,opts.jwud.string(),"Browse",jwud_cb);
+        auto* preferences=g.gtk_box_new(0,8);add(base,preferences);
         launch_when_done=g.gtk_check_button_new_with_label("Launch game when setup completes");
-        g.gtk_toggle_button_set_active(launch_when_done,!opts.no_launch);add(base,launch_when_done);
+        g.gtk_toggle_button_set_active(launch_when_done,!opts.no_launch);add(preferences,launch_when_done,true);
+        controls_button=button(preferences,"Controls...",controls_cb);
         auto* actions=g.gtk_box_new(0,8);add(base,actions);
         start=button(actions,"Install / Rebuild",start_cb);
         verify=button(actions,"Validate dump",verify_cb);
@@ -179,6 +181,7 @@ struct Window {
         g.gtk_widget_set_sensitive(verify,!busy);
         g.gtk_widget_set_sensitive(launch,!busy&&session.can_launch(g.gtk_entry_get_text(out)));
         g.gtk_widget_set_sensitive(cancel,busy);
+        g.gtk_widget_set_sensitive(controls_button,!busy && *g.gtk_entry_get_text(out));
         g.gtk_widget_set_sensitive(open_log_button,!session.full_log_path().empty()&&fs::is_regular_file(session.full_log_path()));
         g.gtk_widget_set_sensitive(launch_when_done,!busy);
         for(auto* entry:{rom,out,java,jwud})g.gtk_widget_set_sensitive(entry,!busy);
@@ -241,6 +244,12 @@ struct Window {
         }
         if(child<0)g.gtk_label_set_text(status,"Unable to open setup log.");
     }
+    void configure_controls() {
+        const fs::path destination=g.gtk_entry_get_text(out);
+        if(destination.empty()) {g.gtk_label_set_text(status,"Select the installation directory first.");return;}
+        if(open_controls_editor(destination))g.gtk_label_set_text(status,"Controls saved. Restart the game to apply bindings.");
+        else g.gtk_label_set_text(status,"Controls editor closed without saving.");
+    }
     void launch_installed() {
         fs::path output=g.gtk_entry_get_text(out);
         if(!session.can_launch(output)) {g.gtk_label_set_text(status,"No installed game executable found.");return;}
@@ -294,6 +303,7 @@ struct Window {
     CB(verify_cb,s.begin(true))
     CB(launch_cb,s.launch_installed())
     CB(log_cb,s.open_full_log())
+    CB(controls_cb,s.configure_controls())
     CB(cancel_cb,s.session.cancel();s.g.gtk_label_set_text(s.status,"Cancelling setup..."))
 #undef CB
 };

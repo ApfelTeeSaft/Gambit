@@ -8,6 +8,9 @@
 
 #include "../os_common.h"
 #include "../../runtime/screen_mode.h"
+#if defined(HAVE_SDL2)
+#include "../../runtime/input_bindings.h"
+#endif
 #include "gx2_render.h"
 #include "gx2_pm4_state.h"
 #include "gx2_perf.h"
@@ -70,7 +73,7 @@ static void toggle_screen_mode() {
         g_touch_state = { false, 0, 0 };
     } else {
         g_screen_mode = ScreenMode::TV;
-        SDL_SetRelativeMouseMode(SDL_TRUE);  // capture cursor for camera
+        SDL_SetRelativeMouseMode(spl_controls::installed().mouse_camera ? SDL_TRUE : SDL_FALSE);  // capture cursor for camera
         g_touch_state = { false, 0, 0 };
     }
     update_window_title();
@@ -183,7 +186,7 @@ static bool gx2_platform_open_window() {
     SDL_RaiseWindow(s_window);
     SDL_PumpEvents();
     SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
-    SDL_SetRelativeMouseMode(SDL_TRUE);
+    SDL_SetRelativeMouseMode(spl_controls::installed().mouse_camera ? SDL_TRUE : SDL_FALSE);
     SDL_PumpEvents();
     SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
     g_screen_mode = ScreenMode::TV;

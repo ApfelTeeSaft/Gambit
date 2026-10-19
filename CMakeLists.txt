@@ -22,6 +22,18 @@ if(REBREWU_EXTERNAL_TOOLCHAIN_FILE)
         "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${REBREWU_TOOLCHAIN_PATH}"
         "-DVCPKG_TARGET_TRIPLET:STRING=x64-windows-static")
 endif()
+# A portable static SDL2 copy powers the launcher's controller binding editor.
+# The game uses the same SDL release, independently fetched by its Zig build.
+include(FetchContent)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST OFF CACHE BOOL "" FORCE)
+set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+FetchContent_Declare(launcher_sdl2
+    URL https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(launcher_sdl2)
 add_subdirectory(launcher)
 
 # Build upstream in its own CMake project: it uses CMAKE_SOURCE_DIR internally.

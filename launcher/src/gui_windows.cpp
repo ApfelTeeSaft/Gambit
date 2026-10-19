@@ -18,7 +18,7 @@ namespace {
 enum Control : int {
     IdRom=110,IdRomFile,IdRomFolder,IdOutput,IdOutputBrowse,
     IdJava,IdJavaBrowse,IdJwud,IdJwudBrowse,IdAutoLaunch,
-    IdInstall,IdValidate,IdLaunch,IdCancel,IdStatus,IdLog,IdProgress,IdOpenLog
+    IdInstall,IdValidate,IdLaunch,IdCancel,IdStatus,IdLog,IdProgress,IdOpenLog,IdControls
 };
 std::wstring wide(const std::string& s) {
     if(s.empty())return {};
@@ -75,7 +75,7 @@ struct WinWindow {
     HMODULE rich_edit_module=nullptr;
     HWND rom=nullptr,out=nullptr,java=nullptr,jwud=nullptr,autolaunch=nullptr;
     HWND heading=nullptr,subtitle=nullptr,rom_label=nullptr,output_label=nullptr,java_label=nullptr,jwud_label=nullptr;
-    HWND install=nullptr,validate=nullptr,launch=nullptr,cancel=nullptr,status=nullptr,log=nullptr,progress=nullptr,open_log=nullptr;
+    HWND install=nullptr,validate=nullptr,launch=nullptr,cancel=nullptr,status=nullptr,log=nullptr,progress=nullptr,open_log=nullptr,controls=nullptr;
     std::wstring transcript;
     bool last_validation=false;
     int displayed_percent=-1;
@@ -127,6 +127,7 @@ struct WinWindow {
         launch=button(L"Launch installed game",IdLaunch);
         cancel=button(L"Cancel",IdCancel);
         open_log=button(L"Open full log",IdOpenLog);
+        controls=button(L"Controls...",IdControls);
         progress=ctrl(0,PROGRESS_CLASSW,L"",PBS_MARQUEE,IdProgress);
         SendMessageW(progress,PBM_SETRANGE32,0,100);
         status=label(L"Ready to set up.");
@@ -162,7 +163,8 @@ struct WinWindow {
         field(output_label,out,GetDlgItem(window,IdOutputBrowse),nullptr);
         field(java_label,java,GetDlgItem(window,IdJavaBrowse),nullptr);
         field(jwud_label,jwud,GetDlgItem(window,IdJwudBrowse),nullptr);
-        move(autolaunch,x,y,width,23);y+=38;
+        move(autolaunch,x,y,width-144,23);
+        move(controls,x+width-136,y-3,136,30);y+=38;
         int bw=128;
         move(install,x,y,bw,33);move(validate,x+bw+8,y,bw,33);
         move(launch,x+2*(bw+8),y,165,33);
@@ -177,6 +179,7 @@ struct WinWindow {
         EnableWindow(install,!busy);EnableWindow(validate,!busy);
         EnableWindow(launch,!busy && session.can_launch(fs::path(value(out))));
         EnableWindow(cancel,busy);
+        EnableWindow(controls,!busy && !value(out).empty());
         EnableWindow(open_log,!session.full_log_path().empty()&&fs::is_regular_file(session.full_log_path()));
         for(auto h:{rom,out,java,jwud,autolaunch,GetDlgItem(window,IdRomFile),GetDlgItem(window,IdRomFolder),
                     GetDlgItem(window,IdOutputBrowse),GetDlgItem(window,IdJavaBrowse),GetDlgItem(window,IdJwudBrowse)})
@@ -214,6 +217,12 @@ struct WinWindow {
         } else SendMessageW(log,EM_SETSEL,static_cast<WPARAM>(-1),static_cast<LPARAM>(-1));
         SendMessageW(log,EM_SCROLLCARET,0,0);
         SendMessageW(log,WM_VSCROLL,MAKEWPARAM(SB_BOTTOM,0),0);
+    }
+    void configure_controls() {
+        const fs::path destination=value(out);
+        if(destination.empty()) {set_status(L"Select the installation directory first.");return;}
+        if(open_controls_editor(destination))set_status(L"Controls saved. Restart the game to apply bindings.");
+        else set_status(L"Controls editor closed without saving.");
     }
     void launch_game() {
         fs::path directory=value(out);
@@ -288,6 +297,7 @@ struct WinWindow {
             case IdLaunch:launch_game();break;
             case IdCancel:session.cancel();set_status(L"Cancelling setup...");break;
             case IdOpenLog:open_full_log();break;
+            case IdControls:configure_controls();break;
             }
             return 0;
         case WM_GETMINMAXINFO: {
