@@ -148,6 +148,8 @@ jobs:
           fi
       - name: Build both tools from one target
         run: cmake --build _ci/build --target SplatoonSetup --config Release --parallel 4
+      - name: Compile SDL VPAD bindings and input tests
+        run: cmake --build _ci/build --target vpad_compile_probe input_bindings_tests --config Release --parallel 4
       - name: Run tests
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
