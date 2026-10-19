@@ -34,10 +34,16 @@ struct Binding {
     int pad_button = -1;
     int pad_axis = -1;
     int pad_sign = 1;
+    int joy_button = -1;
+    int joy_axis = -1;
+    int joy_sign = 1;
+    int joy_hat = -1;
+    int joy_hat_value = 0;
 };
 struct Axis {
     int source = -1;
     bool inverted = false;
+    int joy_source = -1;
 };
 struct Config {
     std::array<Binding,ActionCount> binding{};
@@ -69,15 +75,17 @@ inline Config defaults() {
     key(MoveLeft,SDL_SCANCODE_A);key(MoveRight,SDL_SCANCODE_D);
     c.binding[ZR].mouse=SDL_BUTTON_LEFT;
     c.binding[ZL].mouse=SDL_BUTTON_RIGHT;
-    c.axes={{{SDL_CONTROLLER_AXIS_LEFTX,false},{SDL_CONTROLLER_AXIS_LEFTY,true},
-             {SDL_CONTROLLER_AXIS_RIGHTX,false},{SDL_CONTROLLER_AXIS_RIGHTY,true}}};
+    c.axes={{{SDL_CONTROLLER_AXIS_LEFTX,false,-1},{SDL_CONTROLLER_AXIS_LEFTY,true,-1},
+             {SDL_CONTROLLER_AXIS_RIGHTX,false,-1},{SDL_CONTROLLER_AXIS_RIGHTY,true,-1}}};
     return c;
 }
 inline bool valid_binding(const Binding& b) {
     return b.key>=0 && b.key<SDL_NUM_SCANCODES && b.mouse>=0 && b.mouse<=8 &&
         b.pad_button>=-1 && b.pad_button<SDL_CONTROLLER_BUTTON_MAX &&
         b.pad_axis>=-1 && b.pad_axis<SDL_CONTROLLER_AXIS_MAX &&
-        (b.pad_sign==1 || b.pad_sign==-1);
+        (b.pad_sign==1 || b.pad_sign==-1) && b.joy_button>=-1 && b.joy_button<256 &&
+        b.joy_axis>=-1 && b.joy_axis<256 && (b.joy_sign==1 || b.joy_sign==-1) &&
+        b.joy_hat>=-1 && b.joy_hat<64 && b.joy_hat_value>=0 && b.joy_hat_value<=15;
 }
 inline bool active(const Binding& b, const Uint8* keys, Uint32 mouse, SDL_GameController* pad) {
     if(keys && b.key>0 && b.key<SDL_NUM_SCANCODES && keys[b.key])return true;
@@ -96,21 +104,32 @@ inline bool keyboard_mouse(const Binding& b, const Uint8* keys, Uint32 mouse) {
     if(keys && b.key>0 && b.key<SDL_NUM_SCANCODES && keys[b.key])return true;
     return b.mouse>0 && b.mouse<=8 && (mouse & SDL_BUTTON(b.mouse));
 }
-inline bool gamepad(const Binding& b, SDL_GameController* pad) {
-    if(!pad)return false;
-    if(b.pad_button>=0 && b.pad_button<SDL_CONTROLLER_BUTTON_MAX &&
-       SDL_GameControllerGetButton(pad,static_cast<SDL_GameControllerButton>(b.pad_button)))return true;
-    if(b.pad_axis>=0 && b.pad_axis<SDL_CONTROLLER_AXIS_MAX) {
-        const int value=SDL_GameControllerGetAxis(pad,static_cast<SDL_GameControllerAxis>(b.pad_axis));
-        return value*b.pad_sign>16384;
+inline bool gamepad(const Binding& b, SDL_GameController* pad, SDL_Joystick* raw=nullptr) {
+    if(pad) {
+        if(b.pad_button>=0 && b.pad_button<SDL_CONTROLLER_BUTTON_MAX &&
+           SDL_GameControllerGetButton(pad,static_cast<SDL_GameControllerButton>(b.pad_button)))return true;
+        if(b.pad_axis>=0 && b.pad_axis<SDL_CONTROLLER_AXIS_MAX) {
+            const int value=SDL_GameControllerGetAxis(pad,static_cast<SDL_GameControllerAxis>(b.pad_axis));
+            if(value*b.pad_sign>16384)return true;
+        }
+    }
+    if(raw) {
+        if(b.joy_button>=0 && b.joy_button<SDL_JoystickNumButtons(raw) &&
+           SDL_JoystickGetButton(raw,b.joy_button))return true;
+        if(b.joy_axis>=0 && b.joy_axis<SDL_JoystickNumAxes(raw) &&
+           int(SDL_JoystickGetAxis(raw,b.joy_axis))*b.joy_sign>16384)return true;
+        if(b.joy_hat>=0 && b.joy_hat<SDL_JoystickNumHats(raw) &&
+           (SDL_JoystickGetHat(raw,b.joy_hat)&b.joy_hat_value))return true;
     }
     return false;
 }
-inline float axis_value(const Axis& binding, SDL_GameController* pad) {
-    if(!pad||binding.source<0||binding.source>=SDL_CONTROLLER_AXIS_MAX)return 0;
-    const float v=std::clamp(float(SDL_GameControllerGetAxis(
-        pad,static_cast<SDL_GameControllerAxis>(binding.source)))/32767.f,-1.f,1.f);
-    return binding.inverted ? -v:v;
+inline float axis_value(const Axis& binding, SDL_GameController* pad, SDL_Joystick* raw=nullptr) {
+    float value=0;
+    if(pad && binding.source>=0&&binding.source<SDL_CONTROLLER_AXIS_MAX)
+        value=float(SDL_GameControllerGetAxis(pad,static_cast<SDL_GameControllerAxis>(binding.source)))/32767.f;
+    else if(raw&&binding.joy_source>=0&&binding.joy_source<SDL_JoystickNumAxes(raw))
+        value=float(SDL_JoystickGetAxis(raw,binding.joy_source))/32767.f;
+    return std::clamp(binding.inverted ? -value:value,-1.f,1.f);
 }
 inline bool parse_integer(std::string_view value, int& n) {
     auto result=std::from_chars(value.data(),value.data()+value.size(),n);
@@ -154,6 +173,11 @@ inline Config load(const std::filesystem::path& file) {
             else if(kind=="pad_button")candidate.pad_button=n;
             else if(kind=="pad_axis")candidate.pad_axis=n;
             else if(kind=="pad_sign")candidate.pad_sign=n;
+            else if(kind=="joy_button")candidate.joy_button=n;
+            else if(kind=="joy_axis")candidate.joy_axis=n;
+            else if(kind=="joy_sign")candidate.joy_sign=n;
+            else if(kind=="joy_hat")candidate.joy_hat=n;
+            else if(kind=="joy_hat_value")candidate.joy_hat_value=n;
             if(valid_binding(candidate))c.binding[i]=candidate;
             done=true;
         }
@@ -165,6 +189,7 @@ inline Config load(const std::filesystem::path& file) {
             if(!parse_integer(value,n))break;
             auto field=key.substr(prefix.size());
             if(field=="axis"&&n>=-1&&n<SDL_CONTROLLER_AXIS_MAX)c.axes[i].source=n;
+            else if(field=="joy_axis"&&n>=-1&&n<256)c.axes[i].joy_source=n;
             else if(field=="invert"&&(n==0||n==1))c.axes[i].inverted=n!=0;
             break;
         }
@@ -188,15 +213,27 @@ inline bool save(const std::filesystem::path& file, const Config& c) {
         output<<ids[i]<<".pad_button="<<b.pad_button<<"\n";
         output<<ids[i]<<".pad_axis="<<b.pad_axis<<"\n";
         output<<ids[i]<<".pad_sign="<<b.pad_sign<<"\n";
+        output<<ids[i]<<".joy_button="<<b.joy_button<<"\n";
+        output<<ids[i]<<".joy_axis="<<b.joy_axis<<"\n";
+        output<<ids[i]<<".joy_sign="<<b.joy_sign<<"\n";
+        output<<ids[i]<<".joy_hat="<<b.joy_hat<<"\n";
+        output<<ids[i]<<".joy_hat_value="<<b.joy_hat_value<<"\n";
     }
     for(int i=0;i<4;++i) {
         output<<axis_ids[i]<<".axis="<<c.axes[i].source<<"\n";
+        output<<axis_ids[i]<<".joy_axis="<<c.axes[i].joy_source<<"\n";
         output<<axis_ids[i]<<".invert="<<int(c.axes[i].inverted)<<"\n";
     }
     output.flush();
     return output.good();
 }
-inline std::string pad_label(const Binding& b) {
+inline std::string pad_label(const Binding& b, bool raw=false) {
+    if(raw) {
+        if(b.joy_button>=0)return "Button "+std::to_string(b.joy_button);
+        if(b.joy_axis>=0)return "Axis "+std::to_string(b.joy_axis)+(b.joy_sign>0?"+":"-");
+        if(b.joy_hat>=0)return "Hat "+std::to_string(b.joy_hat)+"/"+std::to_string(b.joy_hat_value);
+        return "Unbound";
+    }
     if(b.pad_button>=0&&b.pad_button<SDL_CONTROLLER_BUTTON_MAX)
         return SDL_GameControllerGetStringForButton(static_cast<SDL_GameControllerButton>(b.pad_button));
     if(b.pad_axis>=0&&b.pad_axis<SDL_CONTROLLER_AXIS_MAX)
