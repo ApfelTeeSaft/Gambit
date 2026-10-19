@@ -29,6 +29,7 @@ SplatoonSetup                             # Open graphical installer
 SplatoonSetup --gui --rom "/path/to/dump"  # Open GUI with input preselected
 SplatoonSetup --cli --rom "/path/to/dump" --no-launch
 SplatoonSetup --rom "/path/to/dump.zip" --validate-only
+SplatoonSetup --controls "/path/to/installed/Game"  # Configure keyboard, mouse and controllers
 SplatoonSetup --toolchain-only
 SplatoonSetup --help
 ```
