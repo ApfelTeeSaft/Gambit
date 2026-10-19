@@ -244,7 +244,7 @@ struct InputDevice {
 static InputDevice& open_device() {
     static InputDevice device;
     const auto& config=input_config();
-    if(!config.controller_mode)return device;
+    if(!config.controller_mode || (config.controller_guid.empty() && config.controller_key.empty()))return device;
     if(device.instance>=0 && (device.mapped ?
         SDL_GameControllerGetAttached(device.mapped) : SDL_JoystickGetAttached(device.raw)))return device;
     if(device.mapped)SDL_GameControllerClose(device.mapped);
