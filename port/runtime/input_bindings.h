@@ -200,7 +200,10 @@ inline Config load(const std::filesystem::path& file) {
             break;
         }
     }
-    if(!mode_found && !c.controller_guid.empty())c.controller_mode=true;
+    if(!mode_found && !c.controller_guid.empty()) {
+        c.controller_mode=true;
+        c.mouse_camera=false;
+    }
     return c;
 }
 // Identity is a stable GUID plus an optional hashed serial/OS device path.
