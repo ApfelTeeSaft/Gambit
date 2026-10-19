@@ -75,6 +75,31 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
           cmake --build _ci/volk-fallback --target portable_volk_probe --parallel 4
           ctest --test-dir _ci/volk-fallback --output-on-failure -R portable_volk_probe
+      - name: Test Cemu address math with Zig 0.14.1 (Windows) or C++20 (Linux)
+        run: |
+          set -euo pipefail
+          shader=port/third_party/cemu_shader
+          coord="$shader/Cafe/HW/Latte/LatteAddrLib/LatteAddrLib_Coord.cpp"
+          mkdir -p _ci
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            mkdir -p _ci/zig
+            curl --fail --location --retry 3 --output _ci/zig-windows.zip \
+              https://ziglang.org/download/0.14.1/zig-x86_64-windows-0.14.1.zip
+            echo "554f5378228923ffd558eac35e21af020c73789d87afeabf4bfd16f2e6feed2c  _ci/zig-windows.zip" | sha256sum -c -
+            7z x _ci/zig-windows.zip -o_ci/zig > /dev/null
+            zig=_ci/zig/zig-x86_64-windows-0.14.1/zig.exe
+            "$zig" c++ -std=c++20 -I"$shader" -include Standalone.h \
+              -fsyntax-only "$coord"
+            "$zig" c++ -std=c++20 -I"$shader" \
+              tests/cmake/cemu_bit_scan.cpp -o _ci/cemu_bit_scan.exe
+            _ci/cemu_bit_scan.exe
+          else
+            c++ -std=c++20 -I"$shader" -include Standalone.h \
+              -fsyntax-only "$coord"
+            c++ -std=c++20 -I"$shader" \
+              tests/cmake/cemu_bit_scan.cpp -o _ci/cemu_bit_scan
+            _ci/cemu_bit_scan
+          fi
       - name: Configure project
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then

@@ -4,24 +4,13 @@
 // Derived from Cemu cc6fea125a5d4f559c662d13c5f4af0b6dd0876f.
 // Standalone integration modifications: Splatoon native port contributors.
 #include "Cafe/HW/Latte/LatteAddrLib/LatteAddrLib.h"
-#ifdef _MSC_VER
-#include <intrin.h> // _BitScanReverse (was via Latte.h)
-#endif
+#include "Cafe/HW/Latte/LatteAddrLib/BitScan.h"
 
 using namespace Latte;
 
 namespace LatteAddrLib
 {
 
-#if BOOST_OS_LINUX || BOOST_OS_MACOS || BOOST_OS_BSD
-	unsigned char _BitScanReverse(uint32* _Index, uint32 _Mask)
-	{
-		if (!_Mask)
-			return 0;
-		*_Index = 31 - __builtin_clzl(_Mask);
-		return 1;
-	}
-#endif
 
 	static const uint32 bankSwapOrder[] = { 0, 1, 3, 2 };
 
@@ -291,8 +280,8 @@ namespace LatteAddrLib
 		default:
 			break;
 		}
-		_BitScanReverse((unsigned long*)&info->macroTilePitchBits, info->macroTilePitch);
-		_BitScanReverse((unsigned long*)&info->macroTileHeightBits, info->macroTileHeight);
+		info->macroTilePitchBits = MostSignificantBitIndex32(info->macroTilePitch);
+		info->macroTileHeightBits = MostSignificantBitIndex32(info->macroTileHeight);
 		info->macroTilesPerRow = info->pitch / info->macroTilePitch;
 		info->macroTileBytes = (info->numSamples * info->microTileThickness * info->bpp * info->macroTileHeight * info->macroTilePitch + 7) >> 3;
 		// slice
