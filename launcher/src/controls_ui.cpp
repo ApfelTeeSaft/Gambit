@@ -2,6 +2,7 @@
 #include "../../port/runtime/input_bindings.h"
 #include <SDL.h>
 #include <algorithm>
+#include <cstdlib>
 #include <array>
 #include <cmath>
 #include <filesystem>
@@ -332,6 +333,9 @@ struct Editor {
     }
     bool run() {
         if(!initialize())return false;
+        if(const char* smoke=std::getenv("SPLATOON_CONTROLS_SMOKE_TEST");smoke&&*smoke=='1') {
+            paint();return true;
+        }
         while(!done) {
             SDL_Event e;
             while(SDL_PollEvent(&e))event(e);
