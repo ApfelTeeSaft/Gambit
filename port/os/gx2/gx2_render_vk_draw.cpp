@@ -14,6 +14,7 @@
 #include "gx2_shader_key.h"
 #include "r700_translation_reads.h"
 #include "gx2_host_memory.h"
+#include "gx2_cpu_features.h"
 #include "gx2_attrib.h"
 #include "vk/gx2_render_vk_state.h"
 #include "vk/gx2_vk_shader.h"
@@ -3375,7 +3376,7 @@ void gx2r_draw_report() {
 // bytes as the scalar conversion, which still handles the tail and CPUs
 // without SSSE3.
 static bool has_ssse3() {
-    static const bool ssse3 = [] { int info[4]{}; __cpuid(info, 1); return (info[2] & (1 << 9)) != 0; }();
+    static const bool ssse3 = gx2_cpu_features::has_ssse3();
     return ssse3;
 }
 static void copy_swapped_indices(uint8_t* dst, const uint8_t* src, uint32_t count, bool is_u32) {
