@@ -112,6 +112,11 @@ jobs:
             "$zig" c++ -std=c++20 -I"$(cygpath -m "$PWD")" \
               "$cpu_test" -o "$cpu_exe"
             "$cpu_exe"
+            wic_src="$(cygpath -m "$PWD/tests/cmake/windows_wic_link.cpp")"
+            wic_exe="$(cygpath -m "$PWD/_ci/windows_wic_link.exe")"
+            "$zig" c++ -std=c++20 "$wic_src" -lole32 -lwindowscodecs -o "$wic_exe"
+            "$wic_exe"
+            grep -Fq 'target_link_libraries(gambit_runtime PUBLIC ws2_32 winmm ole32 windowscodecs)' port/CMakeLists.txt
             game_main="$(cygpath -m "$PWD/port/main.cpp")"
             fake_generated="$(cygpath -m "$PWD/tests/cmake/fake_generated")"
             port_src="$(cygpath -m "$PWD/port")"

@@ -94,9 +94,9 @@ target_link_libraries(gambit_runtime PUBLIC
 )
 
 if(WIN32)
-    target_link_libraries(gambit_runtime PUBLIC ws2_32 winmm)
+    target_link_libraries(gambit_runtime PUBLIC ws2_32 winmm ole32 windowscodecs)
     if(HAVE_MINIAUDIO)
-        target_link_libraries(gambit_runtime PUBLIC ole32 ksuser)
+        target_link_libraries(gambit_runtime PUBLIC ksuser)
     endif()
 endif()
 
