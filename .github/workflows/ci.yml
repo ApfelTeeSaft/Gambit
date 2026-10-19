@@ -99,12 +99,19 @@ jobs:
             "$zig" c++ -std=c++20 -I"$shader_native" \
               "$test_native" -o "$test_exe"
             "$test_exe"
+            guard_test="$(cygpath -m "$PWD/tests/cmake/gx2_safe_read_test.cpp")"
+            guard_exe="$(cygpath -m "$PWD/_ci/gx2_safe_read_test.exe")"
+            "$zig" c++ -std=c++20 -I"$(cygpath -m "$PWD")" \
+              "$guard_test" -o "$guard_exe"
+            "$guard_exe"
           else
             c++ -std=c++20 -I"$shader" -include Standalone.h \
               -fsyntax-only "$coord"
             c++ -std=c++20 -I"$shader" \
               tests/cmake/cemu_bit_scan.cpp -o _ci/cemu_bit_scan
             _ci/cemu_bit_scan
+            c++ -std=c++20 -I. tests/cmake/gx2_safe_read_test.cpp -o _ci/gx2_safe_read_test
+            _ci/gx2_safe_read_test
           fi
       - name: Configure project
         run: |
