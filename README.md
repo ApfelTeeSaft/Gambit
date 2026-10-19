@@ -44,6 +44,8 @@ If a previous release failed with `port_volk` and HTTP 404, it referenced a none
 
 For portable builds, zlib is downloaded and compiled locally when an installed development package is unavailable; no Windows SDK zlib installation is needed. If an older release reports `Could NOT find ZLIB (missing: ZLIB_LIBRARY ZLIB_INCLUDE_DIR)` during game configuration, obtain a new release containing the portable zlib fix. The bundled runtime sources are updated by replacing the extracted release archive; installing zlib separately is not required.
 
+Vulkan-Headers and volk are also fetched and built from pinned sources. They are wired together through `Vulkan::Headers` so a Vulkan SDK is **not** required just to compile the bundled volk library. This is validated on both Windows and Linux without system Vulkan package discovery.
+
 ### Commands
 
 ```text

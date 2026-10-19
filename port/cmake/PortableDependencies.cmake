@@ -25,15 +25,7 @@ FetchContent_Declare(port_glslang
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(port_glslang)
 
-FetchContent_Declare(port_vulkan_headers
-    URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.3.296.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-FetchContent_MakeAvailable(port_vulkan_headers)
-
-FetchContent_Declare(port_volk
-    URL https://github.com/zeux/volk/archive/5283d1ba45f1886be8f4e133f211929c8a7c099b.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-FetchContent_MakeAvailable(port_volk)
+include("${CMAKE_CURRENT_LIST_DIR}/PortableVulkan.cmake")
 
 foreach(required_target SDL2::SDL2-static glslang::glslang
         glslang::glslang-default-resource-limits glslang::SPIRV
