@@ -3,19 +3,7 @@ set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-find_package(ZLIB QUIET)
-if(NOT TARGET ZLIB::ZLIB)
-    set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(port_zlib
-        URL https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-    FetchContent_MakeAvailable(port_zlib)
-    if(TARGET zlibstatic AND NOT TARGET ZLIB::ZLIB)
-        add_library(ZLIB::ZLIB ALIAS zlibstatic)
-    elseif(TARGET zlib AND NOT TARGET ZLIB::ZLIB)
-        add_library(ZLIB::ZLIB ALIAS zlib)
-    endif()
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/PortableZlib.cmake")
 
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)

@@ -42,6 +42,8 @@ The log on disk is independent of the GUI text control's size limit. On Windows,
 
 If a previous release failed with `port_volk` and HTTP 404, it referenced a nonexistent `1.3.296` tag in the volk repository. Updated releases use volk's verified Vulkan 1.3.296 source commit. **Publish a new versioned release and download its Windows ZIP** after merging fixes; already-downloaded release archives do not update automatically. Re-extract the new ZIP (including `port/`), and retry **Install / Rebuild**. If a failed FetchContent download is cached, delete only the release's `build/game/` build-cache directory before retrying; keep your source dump and installation directory.
 
+For portable builds, zlib is downloaded and compiled locally when an installed development package is unavailable; no Windows SDK zlib installation is needed. If an older release reports `Could NOT find ZLIB (missing: ZLIB_LIBRARY ZLIB_INCLUDE_DIR)` during game configuration, obtain a new release containing the portable zlib fix. The bundled runtime sources are updated by replacing the extracted release archive; installing zlib separately is not required.
+
 ### Commands
 
 ```text

@@ -12,7 +12,10 @@ if(DEFINED RBREW_GRAPHICS_BACKEND AND NOT RBREW_GRAPHICS_BACKEND STREQUAL "Vulka
     message(FATAL_ERROR "Gambit requires the Vulkan backend. No alternate graphics backend is available.")
 endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/gx2_graphics_backend.cmake)
-find_package(ZLIB REQUIRED)
+# The portable dependency module may already have created ZLIB::ZLIB from source.
+if(NOT TARGET ZLIB::ZLIB)
+    find_package(ZLIB REQUIRED)
+endif()
 add_subdirectory(third_party/cemu_shader)
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/miniaudio.h")
