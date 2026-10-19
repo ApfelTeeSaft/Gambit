@@ -112,6 +112,12 @@ jobs:
             "$zig" c++ -std=c++20 -I"$(cygpath -m "$PWD")" \
               "$cpu_test" -o "$cpu_exe"
             "$cpu_exe"
+            game_main="$(cygpath -m "$PWD/port/main.cpp")"
+            fake_generated="$(cygpath -m "$PWD/tests/cmake/fake_generated")"
+            port_src="$(cygpath -m "$PWD/port")"
+            "$zig" c++ -std=gnu++20 -I"$fake_generated" -I"$port_src" -I"$port_src/runtime" \
+              -DRBREW_DISABLE_LOGGING -O3 -DNDEBUG -c "$game_main" \
+              -o "$(cygpath -m "$PWD/_ci/gambit_main.obj")"
           else
             c++ -std=c++20 -I"$shader" -include Standalone.h \
               -fsyntax-only "$coord"
@@ -123,6 +129,8 @@ jobs:
             c++ -std=c++20 -Iport/runtime -fsyntax-only port/os/nsysnet/nsysnet.cpp
             c++ -std=c++20 -I. tests/cmake/gx2_cpu_features_test.cpp -o _ci/gx2_cpu_features_test
             _ci/gx2_cpu_features_test
+            c++ -std=gnu++20 -Itests/cmake/fake_generated -Iport -Iport/runtime \
+              -DRBREW_DISABLE_LOGGING -O3 -DNDEBUG -c port/main.cpp -o _ci/gambit_main.o
           fi
       - name: Configure project
         run: |

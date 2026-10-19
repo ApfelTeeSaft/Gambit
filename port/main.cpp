@@ -142,6 +142,7 @@ static void start_hang_sampler(const CPUState* cpu) {
 // Its stack may change underneath: faults end the walk instead of the game.
 static unsigned profile_unwind(CONTEXT walk, uintptr_t exe, uintptr_t exe_end, uintptr_t (&chain)[4]) {
     unsigned found = 0;
+#if defined(_MSC_VER) && !defined(__clang__)
     __try {
         for (int depth = 0; depth < 64 && walk.Rip && found < 4; ++depth) {
             if (walk.Rip >= exe && walk.Rip < exe_end) chain[found++] = uintptr_t(walk.Rip) - exe;
@@ -155,6 +156,25 @@ static unsigned profile_unwind(CONTEXT walk, uintptr_t exe, uintptr_t exe_end, u
             }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
+#else
+    // The sampled thread is running again. Without SEH it is unsafe to
+    // let RtlVirtualUnwind dereference a stack that may have disappeared.
+    // Collect the current frame and follow only verifiable x64 leaf frames.
+    for (int depth = 0; depth < 64 && walk.Rip && found < 4; ++depth) {
+        if (walk.Rip >= exe && walk.Rip < exe_end) chain[found++] = uintptr_t(walk.Rip) - exe;
+        DWORD64 image = 0;
+        if (RtlLookupFunctionEntry(walk.Rip, &image, nullptr)) break;
+        if (walk.Rsp < 0x10000 || walk.Rsp > UINT64_MAX - sizeof(DWORD64)) break;
+        DWORD64 next_rip = 0;
+        SIZE_T bytes_read = 0;
+        if (!ReadProcessMemory(GetCurrentProcess(),
+                               reinterpret_cast<const void*>(static_cast<uintptr_t>(walk.Rsp)),
+                               &next_rip, sizeof(next_rip), &bytes_read) ||
+            bytes_read != sizeof(next_rip) || !next_rip || next_rip == walk.Rip) break;
+        walk.Rsp += sizeof(next_rip);
+        walk.Rip = next_rip;
+    }
+#endif
     return found;
 }
 static void start_profiler() {
