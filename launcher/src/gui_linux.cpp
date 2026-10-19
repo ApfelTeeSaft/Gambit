@@ -100,7 +100,7 @@ struct Window {
     Options opts;
     SetupSession session;
     Widget *win=nullptr,*rom=nullptr,*out=nullptr,*java=nullptr,*jwud=nullptr;
-    Widget *status=nullptr,*progress=nullptr,*log=nullptr,*start=nullptr,*verify=nullptr,*launch=nullptr,*cancel=nullptr,*open_log_button=nullptr;
+    Widget *status=nullptr,*progress=nullptr,*log=nullptr,*start=nullptr,*verify=nullptr,*launch=nullptr,*cancel=nullptr,*open_log_button=nullptr,*controls_button=nullptr;
     Widget *launch_when_done=nullptr;
     bool exit_requested=false;
     bool installed=false;
@@ -158,6 +158,7 @@ struct Window {
         launch=button(actions,"Launch installed game",launch_cb);
         cancel=button(actions,"Cancel setup",cancel_cb);
         open_log_button=button(actions,"Open full log",log_cb);
+        controls_button=button(actions,"Controls...",controls_cb);
         progress=g.gtk_progress_bar_new();add(base,progress);
         status=text(installed?"Existing installation found. You can launch it or select a new dump.":"Ready to set up.");
         add(base,status);
@@ -179,6 +180,7 @@ struct Window {
         g.gtk_widget_set_sensitive(verify,!busy);
         g.gtk_widget_set_sensitive(launch,!busy&&session.can_launch(g.gtk_entry_get_text(out)));
         g.gtk_widget_set_sensitive(cancel,busy);
+        g.gtk_widget_set_sensitive(controls_button,!busy && *g.gtk_entry_get_text(out));
         g.gtk_widget_set_sensitive(open_log_button,!session.full_log_path().empty()&&fs::is_regular_file(session.full_log_path()));
         g.gtk_widget_set_sensitive(launch_when_done,!busy);
         for(auto* entry:{rom,out,java,jwud})g.gtk_widget_set_sensitive(entry,!busy);
@@ -241,6 +243,12 @@ struct Window {
         }
         if(child<0)g.gtk_label_set_text(status,"Unable to open setup log.");
     }
+    void configure_controls() {
+        const fs::path destination=g.gtk_entry_get_text(out);
+        if(destination.empty()) {g.gtk_label_set_text(status,"Select the installation directory first.");return;}
+        if(open_controls_editor(destination))g.gtk_label_set_text(status,"Controls saved. Restart the game to apply bindings.");
+        else g.gtk_label_set_text(status,"Controls editor closed without saving.");
+    }
     void launch_installed() {
         fs::path output=g.gtk_entry_get_text(out);
         if(!session.can_launch(output)) {g.gtk_label_set_text(status,"No installed game executable found.");return;}
@@ -294,6 +302,7 @@ struct Window {
     CB(verify_cb,s.begin(true))
     CB(launch_cb,s.launch_installed())
     CB(log_cb,s.open_full_log())
+    CB(controls_cb,s.configure_controls())
     CB(cancel_cb,s.session.cancel();s.g.gtk_label_set_text(s.status,"Cancelling setup..."))
 #undef CB
 };
