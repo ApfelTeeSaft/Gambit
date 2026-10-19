@@ -29,7 +29,6 @@
 #  pragma comment(lib, "ws2_32")
 typedef int              socklen_t;
 typedef unsigned short   sa_family_t;
-typedef int              ssize_t;
 #  define CLOSE_SOCKET(fd) closesocket(fd)
 #  define SOCK_ERRNO       WSAGetLastError()
 #else
@@ -230,7 +229,7 @@ static void send_(CPUState* cpu) {
     // ARG0=fd, ARG1=buf_guest_ptr, ARG2=len, ARG3=flags
     uint32_t len = ARG2;
     if (!ARG1 || !rbrew_memory_accessible(MEM,ARG1,len)) { RET = (uint32_t)-1; return; }
-    ssize_t n = send((int)ARG0, (const char*)(MEM + ARG1), (int)len, (int)ARG3);
+    auto n = send((int)ARG0, (const char*)(MEM + ARG1), (int)len, (int)ARG3);
     RET = (uint32_t)n;
 }
 
@@ -238,7 +237,7 @@ static void recv_(CPUState* cpu) {
     // ARG0=fd, ARG1=buf_guest_ptr, ARG2=len, ARG3=flags
     uint32_t len = ARG2;
     if (!ARG1 || !rbrew_memory_accessible(MEM,ARG1,len)) { RET = (uint32_t)-1; return; }
-    ssize_t n = recv((int)ARG0, (char*)(MEM + ARG1), (int)len, (int)ARG3);
+    auto n = recv((int)ARG0, (char*)(MEM + ARG1), (int)len, (int)ARG3);
     RET = (uint32_t)n;
 }
 
@@ -248,7 +247,7 @@ static void sendto_(CPUState* cpu) {
     if (!ARG1 || !rbrew_memory_accessible(MEM,ARG1,len)) { RET = (uint32_t)-1; return; }
     struct sockaddr_in sa;
     guest_to_host_sockaddr(MEM, ARG4, &sa);
-    ssize_t n = sendto((int)ARG0, (const char*)(MEM + ARG1), (int)len, (int)ARG3,
+    auto n = sendto((int)ARG0, (const char*)(MEM + ARG1), (int)len, (int)ARG3,
                        (struct sockaddr*)&sa, (socklen_t)sizeof(sa));
     RET = (uint32_t)n;
 }
@@ -259,7 +258,7 @@ static void recvfrom_(CPUState* cpu) {
     if (!ARG1 || !rbrew_memory_accessible(MEM,ARG1,len)) { RET = (uint32_t)-1; return; }
     struct sockaddr_in sa;
     socklen_t slen = sizeof(sa);
-    ssize_t n = recvfrom((int)ARG0, (char*)(MEM + ARG1), (int)len, (int)ARG3,
+    auto n = recvfrom((int)ARG0, (char*)(MEM + ARG1), (int)len, (int)ARG3,
                          (struct sockaddr*)&sa, &slen);
     if (n >= 0 && ARG4) host_to_guest_sockaddr(MEM, ARG4, &sa);
     if (ARG5)            rbrew_write32(MEM, ARG5, 16u);
