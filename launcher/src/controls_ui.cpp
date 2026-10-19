@@ -112,10 +112,10 @@ struct Editor {
     SDL_Joystick* joystick=nullptr;
     int device_index=-1,scroll=0,capture_row=-1,capture_column=-1,dropdown_scroll=0;
     std::string selected_key="keyboard",state;
+    struct Choice {int index;std::string key,label;};
     std::unordered_map<std::string,Config> drafts;
     std::vector<Choice> available;
     bool done=false,saved=false,sdl_started=false,dropdown_open=false;
-    struct Choice {int index;std::string key,label;};
     explicit Editor(std::filesystem::path dir):destination(std::move(dir)/"controls.ini") {
         const Config active=load_selected(destination.parent_path());
         selected_key=active.controller_mode ?
