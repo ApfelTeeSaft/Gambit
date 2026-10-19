@@ -235,16 +235,7 @@ uint32_t vpad_update_edges(uint32_t hold, uint32_t& trigger, uint32_t& release) 
 }
 
 #if defined(HAVE_SDL2)
-static const spl_controls::Config& input_config() {
-    static const spl_controls::Config config=[] {
-        char* base=SDL_GetBasePath();
-        if(!base)return spl_controls::defaults();
-        const std::filesystem::path file=std::filesystem::path(base)/"controls.ini";
-        SDL_free(base);
-        return spl_controls::load(file);
-    }();
-    return config;
-}
+static const spl_controls::Config& input_config() { return spl_controls::installed(); }
 struct InputDevice {
     SDL_GameController* mapped=nullptr;
     SDL_Joystick* raw=nullptr;
