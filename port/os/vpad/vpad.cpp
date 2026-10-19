@@ -250,17 +250,20 @@ static InputDevice& open_device() {
     if(device.mapped)SDL_GameControllerClose(device.mapped);
     if(device.raw)SDL_JoystickClose(device.raw);
     device={};
+    // An offline device must not cause USB/HID opens on every VPADRead call.
+    static Uint64 next_scan=0;
+    const Uint64 now=SDL_GetTicks64();
+    if(now<next_scan)return device;
+    next_scan=now+500;
     for(int i=0;i<SDL_NumJoysticks();++i) {
-        if(!config.controller_guid.empty()) {
-            char guid[33]{};
-            SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(i),guid,sizeof(guid));
-            if(config.controller_guid!=guid)continue;
-        }
+        char guid[33]{};
+        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(i),guid,sizeof(guid));
+        if(!config.controller_guid.empty() && config.controller_guid!=guid)continue;
         SDL_Joystick* probe=SDL_JoystickOpen(i);
         if(!probe)continue;
         const auto key=spl_controls::device_key(probe);
         SDL_JoystickClose(probe);
-        if(!config.controller_key.empty() && key!=config.controller_key)continue;
+        if(!spl_controls::matches_selected_device(config,guid,key))continue;
         if(SDL_IsGameController(i))device.mapped=SDL_GameControllerOpen(i);
         if(!device.mapped)device.raw=SDL_JoystickOpen(i);
         SDL_Joystick* joy=device.mapped?SDL_GameControllerGetJoystick(device.mapped):device.raw;
