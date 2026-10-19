@@ -2389,8 +2389,6 @@ bool gx2_render_vk_set_unit_lod(uint32_t unit, uint32_t target, float min_lod, f
 #include <windows.h>
 #include <wincodec.h>
 #include <thread>
-#pragma comment(lib, "windowscodecs.lib")
-#pragma comment(lib, "ole32.lib")
 #endif
 void gx2_render_vk_startup_warmup(void (*progress)(double));
 namespace {
