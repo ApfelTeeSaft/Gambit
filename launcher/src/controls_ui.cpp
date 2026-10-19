@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace spl {
 namespace {
@@ -109,12 +110,24 @@ struct Editor {
     std::filesystem::path destination;
     SDL_GameController* mapped=nullptr;
     SDL_Joystick* joystick=nullptr;
-    int device_index=-1,scroll=0,capture_row=-1,capture_column=-1;
-    std::string state;
-    bool done=false,saved=false,sdl_started=false;
-    explicit Editor(std::filesystem::path dir):destination(std::move(dir)/"controls.ini"),config(load(destination)){}
-    ~Editor(){close_device();if(renderer)SDL_DestroyRenderer(renderer);if(window)SDL_DestroyWindow(window);
-        if(sdl_started)SDL_QuitSubSystem(SDL_INIT_VIDEO|SDL_INIT_JOYSTICK|SDL_INIT_GAMECONTROLLER);}
+    int device_index=-1,scroll=0,capture_row=-1,capture_column=-1,dropdown_scroll=0;
+    std::string selected_key="keyboard",state;
+    std::unordered_map<std::string,Config> drafts;
+    bool done=false,saved=false,sdl_started=false,dropdown_open=false;
+    struct Choice {int index;std::string key,label;};
+    explicit Editor(std::filesystem::path dir):destination(std::move(dir)/"controls.ini") {
+        const Config active=load_selected(destination.parent_path());
+        selected_key=active.controller_mode ?
+            (!active.controller_key.empty()?active.controller_key:active.controller_guid) : "keyboard";
+        config=active;
+        drafts[selected_key]=active;
+    }
+    ~Editor() {
+        close_device();
+        if(renderer)SDL_DestroyRenderer(renderer);
+        if(window)SDL_DestroyWindow(window);
+        if(sdl_started)SDL_QuitSubSystem(SDL_INIT_VIDEO|SDL_INIT_JOYSTICK|SDL_INIT_GAMECONTROLLER);
+    }
     void close_device() {
         if(mapped){SDL_GameControllerClose(mapped);mapped=nullptr;}
         if(joystick){SDL_JoystickClose(joystick);joystick=nullptr;}
@@ -124,27 +137,48 @@ struct Editor {
     bool same_device(int instance) const {
         auto* j=active_joystick();return j&&SDL_JoystickInstanceID(j)==instance;
     }
-    std::vector<int> devices() const {
-        std::vector<int> indices;
-        for(int i=0;i<SDL_NumJoysticks();++i)indices.push_back(i);
-        return indices;
+    std::vector<Choice> choices() const {
+        std::vector<Choice> result{{-1,"keyboard","KEYBOARD / MOUSE"}};
+        bool matched=selected_key=="keyboard";
+        for(int i=0;i<SDL_NumJoysticks();++i) {
+            auto* j=SDL_JoystickOpen(i);
+            if(!j)continue;
+            const auto key=device_key(j);
+            const char* name=SDL_JoystickName(j);
+            const std::string label=std::string(SDL_IsGameController(i)?"GAMEPAD ":"JOYSTICK ")+
+                std::to_string(i+1)+" - "+(name?name:"UNKNOWN");
+            SDL_JoystickClose(j);
+            result.push_back({i,key,label});
+            if(key==selected_key)matched=true;
+        }
+        if(!matched&&!selected_key.empty())result.push_back({-2,selected_key,"SAVED CONTROLLER (DISCONNECTED)"});
+        return result;
     }
-    void choose_device(int index) {
-        close_device();device_index=index;
-        if(index<0 || index>=SDL_NumJoysticks()){device_index=-1;return;}
-        if(SDL_IsGameController(index))mapped=SDL_GameControllerOpen(index);
-        if(!mapped)joystick=SDL_JoystickOpen(index);
-        auto* j=active_joystick();
-        if(!j){device_index=-1;state="Could not open SDL device";return;}
-        char guid[33]{};
-        SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(j),guid,sizeof(guid));
-        config.controller_guid=guid;
-        state=raw_device()?"Generic SDL joystick selected":"SDL game controller selected";
-    }
-    void cycle(int increment) {
-        const int count=SDL_NumJoysticks();
-        if(!count){choose_device(-1);state="Connect a controller to capture buttons";return;}
-        choose_device(device_index<0?0:(device_index+count+increment)%count);
+    void cache() {drafts[selected_key]=config;}
+    void choose_device(int index, const std::string& key) {
+        cache();close_device();capture_row=capture_column=-1;device_index=index;
+        if(index>=0&&index<SDL_NumJoysticks()) {
+            if(SDL_IsGameController(index))mapped=SDL_GameControllerOpen(index);
+            if(!mapped)joystick=SDL_JoystickOpen(index);
+            if(!active_joystick()){device_index=-2;state="Could not open selected device";return;}
+        }
+        selected_key=index==-1?"keyboard":key;
+        auto found=drafts.find(selected_key);
+        if(found!=drafts.end())config=found->second;
+        else config=read_profile(destination.parent_path(),selected_key);
+        if(index==-1) {
+            config.controller_mode=false;
+            config.controller_guid.clear();config.controller_key.clear();
+            state="KEYBOARD / MOUSE active. Its own bindings will be saved.";
+        } else {
+            config.controller_mode=true;
+            config.controller_key=selected_key;
+            config.controller_guid=selected_key.substr(0,std::min(size_t(32),selected_key.size()));
+            state=index==-2?"Saved controller is disconnected; other devices will not be used":
+                "CONTROLLER active. Keyboard/mouse gameplay input is disabled.";
+            if(found==drafts.end() && !std::filesystem::exists(profile_path(destination.parent_path(),selected_key)))
+                config.mouse_camera=false;
+        }
     }
     bool initialize() {
         SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS,"0");
@@ -157,15 +191,17 @@ struct Editor {
         renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
         if(!renderer)renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
         if(!renderer)return false;
-        auto controllers=devices();
-        int selected=controllers.empty()?-1:0;
-        for(int index:controllers) {
-            char guid[33]{};
-            SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(index),guid,sizeof(guid));
-            if(!config.controller_guid.empty()&&config.controller_guid==guid){selected=index;break;}
+        int selected=-1;
+        for(const auto& choice:choices())if(choice.key==selected_key){selected=choice.index;break;}
+        device_index=selected;
+        if(selected>=0) {
+            if(SDL_IsGameController(selected))mapped=SDL_GameControllerOpen(selected);
+            if(!mapped)joystick=SDL_JoystickOpen(selected);
         }
-        choose_device(selected);
-        state="Click a binding, press a key, mouse button or controller input";
+        state=config.controller_mode ?
+            (active_joystick()?"CONTROLLER selected. Keyboard and mouse do not override gameplay":
+                               "Selected controller is offline. Reconnect it or choose another device"):
+            "KEYBOARD / MOUSE selected. Choose another device from the dropdown.";
         return true;
     }
     int entries() const {return ActionCount+4;}
