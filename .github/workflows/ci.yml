@@ -69,6 +69,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON
           cmake --build _ci/zlib-fallback --target portable_zlib_probe --parallel 4
           ctest --test-dir _ci/zlib-fallback --output-on-failure -R portable_zlib_probe
+      - name: Test portable Vulkan headers and volk without SDK
+        run: |
+          cmake -S tests/cmake/portable_volk -B _ci/volk-fallback -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+          cmake --build _ci/volk-fallback --target portable_volk_probe --parallel 4
+          ctest --test-dir _ci/volk-fallback --output-on-failure -R portable_volk_probe
       - name: Configure project
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
