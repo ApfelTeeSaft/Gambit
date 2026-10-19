@@ -111,9 +111,10 @@ struct Editor {
     SDL_Joystick* joystick=nullptr;
     int device_index=-1,scroll=0,capture_row=-1,capture_column=-1;
     std::string state;
-    bool done=false,saved=false;
+    bool done=false,saved=false,sdl_started=false;
     explicit Editor(std::filesystem::path dir):destination(std::move(dir)/"controls.ini"),config(load(destination)){}
-    ~Editor(){close_device();if(renderer)SDL_DestroyRenderer(renderer);if(window)SDL_DestroyWindow(window);}
+    ~Editor(){close_device();if(renderer)SDL_DestroyRenderer(renderer);if(window)SDL_DestroyWindow(window);
+        if(sdl_started)SDL_QuitSubSystem(SDL_INIT_VIDEO|SDL_INIT_JOYSTICK|SDL_INIT_GAMECONTROLLER);}
     void close_device() {
         if(mapped){SDL_GameControllerClose(mapped);mapped=nullptr;}
         if(joystick){SDL_JoystickClose(joystick);joystick=nullptr;}
@@ -149,6 +150,7 @@ struct Editor {
         SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS,"0");
         SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS,"1");
         if(SDL_InitSubSystem(SDL_INIT_VIDEO|SDL_INIT_JOYSTICK|SDL_INIT_GAMECONTROLLER)!=0)return false;
+        sdl_started=true;
         window=SDL_CreateWindow("Splatoon Port - Input Bindings",SDL_WINDOWPOS_CENTERED,
             SDL_WINDOWPOS_CENTERED,width,height,SDL_WINDOW_SHOWN);
         if(!window)return false;
