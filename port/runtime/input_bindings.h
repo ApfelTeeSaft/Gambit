@@ -196,6 +196,17 @@ inline Config load(const std::filesystem::path& file) {
     }
     return c;
 }
+// The game and windowing layer share one immutable configuration snapshot per run.
+inline const Config& installed() {
+    static const Config c=[] {
+        char* base=SDL_GetBasePath();
+        if(!base)return defaults();
+        const std::filesystem::path location=std::filesystem::path(base)/"controls.ini";
+        SDL_free(base);
+        return load(location);
+    }();
+    return c;
+}
 inline bool save(const std::filesystem::path& file, const Config& c) {
     std::error_code ec;
     if(!file.parent_path().empty())std::filesystem::create_directories(file.parent_path(),ec);
