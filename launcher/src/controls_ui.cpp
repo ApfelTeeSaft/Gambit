@@ -375,14 +375,15 @@ struct Editor {
         rect(renderer,0,0,width,height,{17,25,39,255});
         text(renderer,24,22,"SPLATOON PORT / INPUT BINDINGS",fg,3,65);
         rect(renderer,22,55,1006,38,{33,48,66,255});
-        text(renderer,30,65,"<",accent);
-        std::string device="NO CONTROLLER - KEYBOARD / MOUSE ONLY";
+        std::string device=config.controller_mode?"SAVED CONTROLLER (DISCONNECTED)":"KEYBOARD / MOUSE";
         if(active_joystick()) {
             const char* name=SDL_JoystickName(active_joystick());
-            device=std::string(raw_device()?"GENERIC JOYSTICK: ":"GAME CONTROLLER: ")+(name?name:"UNKNOWN");
+            device=std::string(raw_device()?"JOYSTICK: ":"GAMEPAD: ")+(name?name:"UNKNOWN");
         }
-        text(renderer,74,65,device,fg,2,70);
-        text(renderer,999,65,">",accent);
+        text(renderer,33,66,"DEVICE:",accent);
+        text(renderer,137,66,device,fg,2,65);
+        rect(renderer,974,59,50,30,{50,83,115,255});
+        text(renderer,995,67,"V",fg);
         rect(renderer,22,103,1006,44,{27,43,60,255});
         text(renderer,38,116,std::string("MOUSE CAMERA: ")+(config.mouse_camera?"ON":"OFF"),accent,2);
         text(renderer,425,116,"SENS -",fg,2);
@@ -390,8 +391,8 @@ struct Editor {
         text(renderer,707,116,"+",accent);
         text(renderer,772,116,"RIGHT CLICK STICK AXIS TO FLIP",muted,2,28);
         text(renderer,35,163,"WII U ACTION",muted);
-        text(renderer,357,163,"KEYBOARD / MOUSE",muted);
-        text(renderer,671,163,"CONTROLLER",muted);
+        text(renderer,357,163,"KEYBOARD / MOUSE",config.controller_mode?muted:accent);
+        text(renderer,671,163,"SELECTED CONTROLLER",config.controller_mode?accent:muted);
         for(int i=0;i<view_rows;++i){
             const int row=scroll+i;
             if(row>=entries())break;
@@ -399,7 +400,8 @@ struct Editor {
             rect(renderer,23,y,1003,row_height-2,row%2?SDL_Color{27,39,55,255}:SDL_Color{35,48,64,255});
             text(renderer,36,y+9,row<ActionCount?names[row]:
                 (std::string(axis_ids[row-ActionCount])+" axis"),fg,2,23);
-            if(row<ActionCount)text(renderer,356,y+9,keyboard_label(config.binding[row]),muted,2,23);
+            if(row<ActionCount)text(renderer,356,y+9,keyboard_label(config.binding[row]),
+                config.controller_mode?SDL_Color{100,115,133,255}:fg,2,23);
             std::string pad="N/A";
             if(row<ActionCount)pad=controller_label(config.binding[row],raw_device());
             else {
@@ -409,13 +411,14 @@ struct Editor {
                     std::string(SDL_GameControllerGetStringForAxis(static_cast<SDL_GameControllerAxis>(source))));
                 if(a.inverted)pad+=" (flipped)";
             }
-            text(renderer,674,y+9,pad,muted,2,28);
+            text(renderer,674,y+9,pad,config.controller_mode?fg:SDL_Color{100,115,133,255},2,28);
             if(capture_row==row) {
                 rect(renderer,capture_column==0?343:661,y,3,row_height-2,accent);
                 rect(renderer,capture_column==0?652:1022,y,3,row_height-2,accent);
             }
         }
-        text(renderer,27,620,"SCROLL FOR MORE / INPUT CHANGES APPLY ON NEXT GAME START",muted,2,72);
+        text(renderer,27,620,config.controller_mode?"CONTROLLER-ONLY GAMEPLAY / MOUSE CAMERA OPTIONAL":
+            "KEYBOARD AND MOUSE ONLY / CONTROLLERS DISABLED",muted,2,72);
         text(renderer,27,649,state,accent,2,84);
         rect(renderer,24,682,285,51,{43,116,168,255});
         rect(renderer,356,682,285,51,{56,74,99,255});
@@ -423,6 +426,21 @@ struct Editor {
         text(renderer,54,699,"SAVE AND CLOSE",fg,2);
         text(renderer,393,699,"RESTORE DEFAULTS",fg,2);
         text(renderer,757,699,"CANCEL",fg,2);
+        if(dropdown_open) {
+            const auto list=choices();
+            const int shown=std::min(9,int(list.size())-dropdown_scroll);
+            rect(renderer,21,93,1009,std::max(1,shown)*33+4,{69,107,140,255});
+            for(int i=0;i<shown;++i) {
+                const auto& choice=list[dropdown_scroll+i];
+                const bool selected=choice.key==selected_key;
+                const int y=95+i*33;
+                rect(renderer,25,y,1000,31,selected?SDL_Color{52,106,154,255}:
+                    (i%2?SDL_Color{31,47,65,255}:SDL_Color{37,56,76,255}));
+                text(renderer,37,y+9,(selected?"* ":"  ")+choice.label,selected?fg:muted,2,76);
+            }
+            if(list.size()>9)
+                text(renderer,35,95+shown*33+7,"SCROLL TO SEE OTHER CONNECTED DEVICES",muted,2,52);
+        }
         SDL_RenderPresent(renderer);
     }
     bool run() {
