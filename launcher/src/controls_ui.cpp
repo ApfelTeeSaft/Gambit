@@ -113,6 +113,7 @@ struct Editor {
     int device_index=-1,scroll=0,capture_row=-1,capture_column=-1,dropdown_scroll=0;
     std::string selected_key="keyboard",state;
     std::unordered_map<std::string,Config> drafts;
+    std::vector<Choice> available;
     bool done=false,saved=false,sdl_started=false,dropdown_open=false;
     struct Choice {int index;std::string key,label;};
     explicit Editor(std::filesystem::path dir):destination(std::move(dir)/"controls.ini") {
@@ -137,7 +138,7 @@ struct Editor {
     bool same_device(int instance) const {
         auto* j=active_joystick();return j&&SDL_JoystickInstanceID(j)==instance;
     }
-    std::vector<Choice> choices() const {
+    void refresh_choices() {
         std::vector<Choice> result{{-1,"keyboard","KEYBOARD / MOUSE"}};
         bool matched=selected_key=="keyboard";
         for(int i=0;i<SDL_NumJoysticks();++i) {
@@ -152,8 +153,9 @@ struct Editor {
             if(key==selected_key)matched=true;
         }
         if(!matched&&!selected_key.empty())result.push_back({-2,selected_key,"SAVED CONTROLLER (DISCONNECTED)"});
-        return result;
+        available=std::move(result);
     }
+    const std::vector<Choice>& choices() const {return available;}
     void cache() {drafts[selected_key]=config;}
     void choose_device(int index, const std::string& key) {
         cache();close_device();capture_row=capture_column=-1;device_index=index;
@@ -179,6 +181,7 @@ struct Editor {
             if(found==drafts.end() && !std::filesystem::exists(profile_path(destination.parent_path(),selected_key)))
                 config.mouse_camera=false;
         }
+        refresh_choices();
     }
     bool initialize() {
         SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS,"0");
@@ -191,8 +194,24 @@ struct Editor {
         renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
         if(!renderer)renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
         if(!renderer)return false;
+        refresh_choices();
         int selected=-1;
         for(const auto& choice:choices())if(choice.key==selected_key){selected=choice.index;break;}
+        // Upgrade v1 controller GUID selections without discarding their layout.
+        if(config.controller_mode && selected_key.size()==32 && selected<0) {
+            for(const auto& choice:choices()) {
+                if(choice.index<0 || choice.key.substr(0,32)!=selected_key)continue;
+                selected=choice.index;
+                const auto legacy=selected_key;
+                selected_key=choice.key;
+                config.controller_key=selected_key;
+                drafts.erase(legacy);
+                drafts[selected_key]=config;
+                refresh_choices();
+                break;
+            }
+        }
+        if(config.controller_mode && selected<0)selected=-2;
         device_index=selected;
         if(selected>=0) {
             if(SDL_IsGameController(selected))mapped=SDL_GameControllerOpen(selected);
@@ -286,14 +305,14 @@ struct Editor {
         if(capture_row>=0)return;
         if(dropdown_open) {
             if(y>=93 && y<93+std::min(9,int(choices().size()))*33 && x>=23&&x<=1028) {
-                const auto list=choices();
+                const auto& list=choices();
                 const int n=dropdown_scroll+(y-93)/33;
                 if(n>=0&&n<int(list.size()))choose_device(list[n].index,list[n].key);
             }
             dropdown_open=false;
             return;
         }
-        if(y>=55&&y<94){dropdown_open=true;dropdown_scroll=0;return;}
+        if(y>=55&&y<94){refresh_choices();dropdown_open=true;dropdown_scroll=0;return;}
         if(y>=105&&y<144){
             if(x>30&&x<355){config.mouse_camera=!config.mouse_camera;return;}
             if(x>460&&x<518)config.mouse_sensitivity=std::max(0.0001f,config.mouse_sensitivity*0.8f);
@@ -337,7 +356,8 @@ struct Editor {
         if(e.type==SDL_QUIT){done=true;return;}
         if(e.type==SDL_CONTROLLERDEVICEADDED||e.type==SDL_JOYDEVICEADDED ||
            e.type==SDL_CONTROLLERDEVICEREMOVED||e.type==SDL_JOYDEVICEREMOVED) {
-            const auto list=choices();
+            refresh_choices();
+            const auto& list=choices();
             bool attached=false;
             for(const auto& choice:list) {
                 if(choice.index<0 || choice.key!=selected_key)continue;
@@ -427,7 +447,7 @@ struct Editor {
         text(renderer,393,699,"RESTORE DEFAULTS",fg,2);
         text(renderer,757,699,"CANCEL",fg,2);
         if(dropdown_open) {
-            const auto list=choices();
+            const auto& list=choices();
             const int shown=std::min(9,int(list.size())-dropdown_scroll);
             rect(renderer,21,93,1009,std::max(1,shown)*33+4,{69,107,140,255});
             for(int i=0;i<shown;++i) {
