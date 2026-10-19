@@ -227,6 +227,11 @@ inline std::string device_key(SDL_Joystick* joy) {
     }
     return key;
 }
+inline bool matches_selected_device(const Config& config, std::string_view guid, std::string_view key) {
+    return config.controller_mode &&
+        (config.controller_guid.empty() || config.controller_guid==guid) &&
+        (config.controller_key.empty() || config.controller_key==key);
+}
 inline bool valid_device_key(std::string_view key) {
     if(key=="keyboard")return true;
     if(key.size()!=32&&key.size()!=49)return false;
