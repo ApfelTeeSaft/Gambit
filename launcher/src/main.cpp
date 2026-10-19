@@ -39,6 +39,7 @@ int main(int argc,char** argv) {
 
     spl::Options opts;
     bool explicit_cli=false,force_gui=false,help=false;
+    std::filesystem::path controls_directory;
     try {
         for(int i=1;i<argc;++i) {
             #ifdef _WIN32
@@ -61,6 +62,7 @@ int main(int argc,char** argv) {
             else if(arg=="--validate-only") {opts.validate_only=true;explicit_cli=true;}
             else if(arg=="--no-launch") {opts.no_launch=true;explicit_cli=true;}
             else if(arg=="--toolchain-only") {opts.toolchain_only=true;explicit_cli=true;}
+            else if(arg=="--controls") controls_directory=value("--controls");
             else if(arg=="--help"||arg=="-h")help=true;
             else throw std::runtime_error("Unknown option: "+arg);
         }
@@ -74,6 +76,7 @@ int main(int argc,char** argv) {
                      <<"  --validate-only       Check dump without installing\n"
                      <<"  --no-launch           Do not launch the game after installation\n"
                      <<"  --toolchain-only      Download portable toolchain only\n"
+                     <<"  --controls PATH       Open controller rebinding editor for an installation\n"
                      <<"  --java PATH --jwud JAR  Optional WUX/WUD tools\n";
             return 0;
         }
@@ -91,6 +94,7 @@ int main(int argc,char** argv) {
         if(opts.repository.empty())opts.repository=executable.parent_path();
         opts.repository=std::filesystem::absolute(opts.repository);
         if(opts.output.empty())opts.output=opts.repository/"Game";
+        if(!controls_directory.empty())return spl::open_controls_editor(controls_directory)?0:1;
         if(force_gui)return spl::run_gui(opts,executable);
         if(!explicit_cli)return spl::run_gui(opts,executable);
         std::cout.setf(std::ios::unitbuf);
