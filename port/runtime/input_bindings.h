@@ -9,6 +9,7 @@
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace spl_controls {
 enum Action : int {
@@ -51,6 +52,8 @@ struct Config {
     bool mouse_camera = true;
     float mouse_sensitivity = 0.005f;
     std::string controller_guid;
+    std::string controller_key;
+    bool controller_mode = false;
 };
 inline Config defaults() {
     Config c;
@@ -144,12 +147,15 @@ inline std::string trim(std::string value) {
 inline Config load(const std::filesystem::path& file) {
     Config c=defaults();
     std::ifstream input(file);
+    bool mode_found=false;
     std::string line;
     while(std::getline(input,line)) {
         if(auto comment=line.find('#');comment!=std::string::npos)line.resize(comment);
         const auto pos=line.find('=');
         if(pos==std::string::npos)continue;
         auto key=trim(line.substr(0,pos)), value=trim(line.substr(pos+1));
+        if(key=="input_mode"){if(value=="controller"||value=="keyboard") {c.controller_mode=value=="controller";mode_found=true;}continue;}
+        if(key=="controller_key"){if(value.size()<=72 && value.find_first_not_of("0123456789abcdefABCDEF-")==std::string::npos)c.controller_key=value;continue;}
         if(key=="mouse_camera") {if(value=="0"||value=="1")c.mouse_camera=value=="1";continue;}
         if(key=="sensitivity") {
             try{const float s=std::stof(value);if(std::isfinite(s)&&s>=0.0001f&&s<=0.1f)c.mouse_sensitivity=s;}
@@ -194,7 +200,73 @@ inline Config load(const std::filesystem::path& file) {
             break;
         }
     }
+    if(!mode_found && !c.controller_guid.empty()) {
+        c.controller_mode=true;
+        c.mouse_camera=false;
+    }
     return c;
+}
+// Identity is a stable GUID plus an optional hashed serial/OS device path.
+// Device index/instance ID are deliberately excluded: those change on reconnect.
+inline std::string device_key(SDL_Joystick* joy) {
+    if(!joy)return {};
+    char guid[33]{};
+    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(joy),guid,sizeof(guid));
+    const char* serial=SDL_JoystickGetSerial(joy);
+    const char* path=SDL_JoystickPath(joy);
+    const char* unique=(serial&&*serial)?serial:((path&&*path)?path:nullptr);
+    std::string key=guid;
+    if(unique) {
+        std::uint64_t hash=14695981039346656037ull;
+        for(const unsigned char ch:std::string(unique)) {
+            hash^=ch;hash*=1099511628211ull;
+        }
+        static constexpr char hex[]="0123456789abcdef";
+        key.push_back('-');
+        for(int shift=60;shift>=0;shift-=4)key.push_back(hex[(hash>>shift)&15]);
+    }
+    return key;
+}
+inline bool matches_selected_device(const Config& config, std::string_view guid, std::string_view key) {
+    return config.controller_mode &&
+        (config.controller_guid.empty() || config.controller_guid==guid) &&
+        (config.controller_key.empty() || config.controller_key==key);
+}
+inline bool valid_device_key(std::string_view key) {
+    if(key=="keyboard")return true;
+    if(key.size()!=32&&key.size()!=49)return false;
+    for(size_t i=0;i<key.size();++i) {
+        if(i==32&&key.size()==49){if(key[i]!='-')return false;continue;}
+        const char c=key[i];
+        if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F')))return false;
+    }
+    return true;
+}
+inline std::filesystem::path profile_path(const std::filesystem::path& dir, std::string_view key) {
+    if(!valid_device_key(key))return {};
+    return dir/"input_profiles"/(std::string(key)+".ini");
+}
+inline Config read_profile(const std::filesystem::path& dir, std::string_view key) {
+    const auto path=profile_path(dir,key);
+    Config c=path.empty()?defaults():load(path);
+    if(key!="keyboard") {
+        c.controller_mode=true;
+        c.controller_key=std::string(key);
+        if(key.size()>=32)c.controller_guid=std::string(key.substr(0,32));
+    } else {
+        c.controller_mode=false;c.controller_key.clear();c.controller_guid.clear();
+    }
+    return c;
+}
+inline Config load_selected(const std::filesystem::path& dir) {
+    Config selected=load(dir/"controls.ini");
+    if(!selected.controller_mode)return selected;
+    if(!valid_device_key(selected.controller_key)||selected.controller_key=="keyboard")return selected;
+    const auto path=profile_path(dir,selected.controller_key);
+    std::error_code ec;
+    if(!std::filesystem::is_regular_file(path,ec))return selected;
+    Config profile=read_profile(dir,selected.controller_key);
+    return profile;
 }
 // The game and windowing layer share one immutable configuration snapshot per run.
 inline const Config& installed() {
@@ -203,7 +275,7 @@ inline const Config& installed() {
         if(!base)return defaults();
         const std::filesystem::path location=std::filesystem::u8path(base)/"controls.ini";
         SDL_free(base);
-        return load(location);
+        return load_selected(location.parent_path());
     }();
     return c;
 }
@@ -213,7 +285,9 @@ inline bool save(const std::filesystem::path& file, const Config& c) {
     if(ec)return false;
     std::ofstream output(file,std::ios::binary|std::ios::trunc);
     if(!output)return false;
-    output<<"# Splatoon Port input bindings v1\n";
+    output<<"# Splatoon Port input bindings v2\n";
+    output<<"input_mode="<<(c.controller_mode?"controller":"keyboard")<<"\n";
+    output<<"controller_key="<<c.controller_key<<"\n";
     output<<"mouse_camera="<<int(c.mouse_camera)<<"\n";
     output<<"sensitivity="<<c.mouse_sensitivity<<"\n";
     output<<"controller_guid="<<c.controller_guid<<"\n";

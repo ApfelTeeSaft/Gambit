@@ -243,25 +243,35 @@ struct InputDevice {
 };
 static InputDevice& open_device() {
     static InputDevice device;
+    const auto& config=input_config();
+    if(!config.controller_mode || (config.controller_guid.empty() && config.controller_key.empty()))return device;
     if(device.instance>=0 && (device.mapped ?
         SDL_GameControllerGetAttached(device.mapped) : SDL_JoystickGetAttached(device.raw)))return device;
     if(device.mapped)SDL_GameControllerClose(device.mapped);
     if(device.raw)SDL_JoystickClose(device.raw);
     device={};
-    const auto& guid=input_config().controller_guid;
-    int selected=-1;
+    // An offline device must not cause USB/HID opens on every VPADRead call.
+    static Uint64 next_scan=0;
+    const Uint64 now=SDL_GetTicks64();
+    if(now<next_scan)return device;
+    next_scan=now+500;
     for(int i=0;i<SDL_NumJoysticks();++i) {
-        if(selected<0)selected=i;
-        if(guid.empty())break;
-        char id[33]{};
-        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(i),id,sizeof(id));
-        if(guid==id){selected=i;break;}
+        char guid[33]{};
+        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(i),guid,sizeof(guid));
+        if(!config.controller_guid.empty() && config.controller_guid!=guid)continue;
+        SDL_Joystick* probe=SDL_JoystickOpen(i);
+        if(!probe)continue;
+        const auto key=spl_controls::device_key(probe);
+        SDL_JoystickClose(probe);
+        if(!spl_controls::matches_selected_device(config,guid,key))continue;
+        if(SDL_IsGameController(i))device.mapped=SDL_GameControllerOpen(i);
+        if(!device.mapped)device.raw=SDL_JoystickOpen(i);
+        SDL_Joystick* joy=device.mapped?SDL_GameControllerGetJoystick(device.mapped):device.raw;
+        if(joy) {
+            device.instance=SDL_JoystickInstanceID(joy);
+            break;
+        }
     }
-    if(selected<0)return device;
-    if(SDL_IsGameController(selected))device.mapped=SDL_GameControllerOpen(selected);
-    if(!device.mapped)device.raw=SDL_JoystickOpen(selected);
-    SDL_Joystick* joy=device.mapped?SDL_GameControllerGetJoystick(device.mapped):device.raw;
-    if(joy)device.instance=SDL_JoystickInstanceID(joy);
     return device;
 }
 #endif
@@ -310,20 +320,23 @@ static void VPADRead(CPUState* cpu) {
         {spl_controls::LeftClick,VPAD_BUTTON_STICK_L},
         {spl_controls::RightClick,VPAD_BUTTON_STICK_R}
     };
-    for(const auto& entry:kButtons)if(gamepad(entry.action))buttons|=entry.bit;
-    lx=spl_controls::axis_value(bindings.axes[0],gc,raw);
-    ly=spl_controls::axis_value(bindings.axes[1],gc,raw);
-    rx=spl_controls::axis_value(bindings.axes[2],gc,raw);
-    ry=spl_controls::axis_value(bindings.axes[3],gc,raw);
-    auto digital=[&](spl_controls::Action negative, spl_controls::Action positive, float& value) {
-        const bool lo=gamepad(negative),hi=gamepad(positive);
-        if(lo||hi)value=float(int(hi)-int(lo));
-    };
-    digital(spl_controls::MoveLeft,spl_controls::MoveRight,lx);
-    digital(spl_controls::MoveDown,spl_controls::MoveUp,ly);
-    digital(spl_controls::AimLeft,spl_controls::AimRight,rx);
-    digital(spl_controls::AimDown,spl_controls::AimUp,ry);
-    shape_stick(lx,ly);shape_stick(rx,ry);
+    if(bindings.controller_mode)
+        for(const auto& entry:kButtons)if(gamepad(entry.action))buttons|=entry.bit;
+    if(bindings.controller_mode) {
+        lx=spl_controls::axis_value(bindings.axes[0],gc,raw);
+        ly=spl_controls::axis_value(bindings.axes[1],gc,raw);
+        rx=spl_controls::axis_value(bindings.axes[2],gc,raw);
+        ry=spl_controls::axis_value(bindings.axes[3],gc,raw);
+        auto digital=[&](spl_controls::Action negative,spl_controls::Action positive,float& value) {
+            const bool lo=gamepad(negative),hi=gamepad(positive);
+            if(lo||hi)value=float(int(hi)-int(lo));
+        };
+        digital(spl_controls::MoveLeft,spl_controls::MoveRight,lx);
+        digital(spl_controls::MoveDown,spl_controls::MoveUp,ly);
+        digital(spl_controls::AimLeft,spl_controls::AimRight,rx);
+        digital(spl_controls::AimDown,spl_controls::AimUp,ry);
+        shape_stick(lx,ly);shape_stick(rx,ry);
+    }
 
     // Keyboard/mouse overlay is active only on the TV output; GamePad view
     // continues to use the mouse for simulated touch input.
@@ -334,20 +347,23 @@ static void VPADRead(CPUState* cpu) {
         auto desktop=[&](spl_controls::Action action) {
             return spl_controls::keyboard_mouse(bindings.binding[action],keys,mouse);
         };
-        for(const auto& entry:kButtons)if(desktop(entry.action))buttons|=entry.bit;
-        const float horizontal=float(int(desktop(spl_controls::MoveRight))-
-                                     int(desktop(spl_controls::MoveLeft)));
-        const float vertical=float(int(desktop(spl_controls::MoveUp))-
-                                   int(desktop(spl_controls::MoveDown)));
-        if(horizontal!=0||vertical!=0) {
-            lx=horizontal;ly=vertical;
-            if(lx!=0&&ly!=0){lx*=0.70710678f;ly*=0.70710678f;}
+        if(!bindings.controller_mode)
+            for(const auto& entry:kButtons)if(desktop(entry.action))buttons|=entry.bit;
+        if(!bindings.controller_mode) {
+            const float horizontal=float(int(desktop(spl_controls::MoveRight))-
+                                         int(desktop(spl_controls::MoveLeft)));
+            const float vertical=float(int(desktop(spl_controls::MoveUp))-
+                                       int(desktop(spl_controls::MoveDown)));
+            if(horizontal!=0||vertical!=0) {
+                lx=horizontal;ly=vertical;
+                if(lx!=0&&ly!=0){lx*=0.70710678f;ly*=0.70710678f;}
+            }
+            const float aim_x=float(int(desktop(spl_controls::AimRight))-
+                                    int(desktop(spl_controls::AimLeft)));
+            const float aim_y=float(int(desktop(spl_controls::AimUp))-
+                                    int(desktop(spl_controls::AimDown)));
+            if(aim_x!=0||aim_y!=0){rx=aim_x;ry=aim_y;}
         }
-        const float aim_x=float(int(desktop(spl_controls::AimRight))-
-                                int(desktop(spl_controls::AimLeft)));
-        const float aim_y=float(int(desktop(spl_controls::AimUp))-
-                                int(desktop(spl_controls::AimDown)));
-        if(aim_x!=0||aim_y!=0){rx=aim_x;ry=aim_y;}
         int dx=0,dy=0;
         SDL_GetRelativeMouseState(&dx,&dy);
         if(bindings.mouse_camera) {
