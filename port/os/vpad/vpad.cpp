@@ -26,6 +26,7 @@
 #include "../os_common.h"
 #include "../../runtime/screen_mode.h"
 #include "../../runtime/native_control_defaults.h"
+#include "../../runtime/input_bindings.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -33,6 +34,7 @@
 #include <utility>
 #include <string.h>
 #include <stdio.h>
+#include <filesystem>
 #include <stdlib.h>
 
 // SDL2 types are needed wherever HAVE_SDL2 code uses SDL_GameController, etc.
@@ -233,18 +235,40 @@ uint32_t vpad_update_edges(uint32_t hold, uint32_t& trigger, uint32_t& release) 
 }
 
 #if defined(HAVE_SDL2)
+static const spl_controls::Config& input_config() {
+    static const spl_controls::Config config=[] {
+        char* base=SDL_GetBasePath();
+        if(!base)return spl_controls::defaults();
+        const std::filesystem::path file=std::filesystem::path(base)/"controls.ini";
+        SDL_free(base);
+        return spl_controls::load(file);
+    }();
+    return config;
+}
+static bool controller_matches(SDL_GameController* gc, const std::string& guid) {
+    if(guid.empty())return true;
+    char actual[33]{};
+    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(SDL_GameControllerGetJoystick(gc)),actual,sizeof(actual));
+    return guid==actual;
+}
 static SDL_GameController* open_controller() {
     static SDL_GameController* s_gc = nullptr;
     if (s_gc && SDL_GameControllerGetAttached(s_gc)) return s_gc;
     if (s_gc) { SDL_GameControllerClose(s_gc); s_gc = nullptr; }
-    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
-        if (!SDL_IsGameController(i) || !(s_gc = SDL_GameControllerOpen(i))) continue;
-        char* mapping = SDL_GameControllerMapping(s_gc);
-        RBREW_LOGF(stderr, "[vpad] using controller '%s' type=%d vid=%04X pid=%04X mapping=%s\n",
-                SDL_GameControllerName(s_gc), int(SDL_GameControllerGetType(s_gc)),
-                SDL_GameControllerGetVendor(s_gc), SDL_GameControllerGetProduct(s_gc), mapping ? mapping : "-");
-        SDL_free(mapping);
-        break;
+    const auto& configured=input_config().controller_guid;
+    int best=-1;
+    for(int i=0;i<SDL_NumJoysticks();++i) {
+        if(!SDL_IsGameController(i))continue;
+        if(best<0)best=i;
+        if(configured.empty())break;
+        SDL_JoystickGUID id=SDL_JoystickGetDeviceGUID(i);
+        char guid[33]{};
+        SDL_JoystickGetGUIDString(id,guid,sizeof(guid));
+        if(configured==guid){best=i;break;}
+    }
+    if(best>=0)s_gc=SDL_GameControllerOpen(best);
+    if(s_gc) {
+        RBREW_LOGF(stderr,"[vpad] selected SDL controller '%s'\n",SDL_GameControllerName(s_gc));
     }
     return s_gc;
 }
@@ -275,83 +299,67 @@ static void VPADRead(CPUState* cpu) {
     float rx = 0.0f, ry = 0.0f; // right stick (camera)
 
 #if defined(HAVE_SDL2)
-    if (SDL_GameController* gc = open_controller()) {
-        auto btn = [&](SDL_GameControllerButton b) {
-            return SDL_GameControllerGetButton(gc, b) != 0;
+    const auto& bindings=input_config();
+    SDL_GameController* gc=open_controller();
+    auto gamepad=[&](spl_controls::Action action) {
+        return spl_controls::gamepad(bindings.binding[action],gc);
+    };
+    static constexpr struct {spl_controls::Action action;uint32_t bit;} kButtons[]={
+        {spl_controls::A,VPAD_BUTTON_A},{spl_controls::B,VPAD_BUTTON_B},
+        {spl_controls::X,VPAD_BUTTON_X},{spl_controls::Y,VPAD_BUTTON_Y},
+        {spl_controls::Up,VPAD_BUTTON_UP},{spl_controls::Down,VPAD_BUTTON_DOWN},
+        {spl_controls::Left,VPAD_BUTTON_LEFT},{spl_controls::Right,VPAD_BUTTON_RIGHT},
+        {spl_controls::ZL,VPAD_BUTTON_ZL},{spl_controls::ZR,VPAD_BUTTON_ZR},
+        {spl_controls::L,VPAD_BUTTON_L},{spl_controls::R,VPAD_BUTTON_R},
+        {spl_controls::Plus,VPAD_BUTTON_PLUS},{spl_controls::Minus,VPAD_BUTTON_MINUS},
+        {spl_controls::Home,VPAD_BUTTON_HOME},
+        {spl_controls::LeftClick,VPAD_BUTTON_STICK_L},
+        {spl_controls::RightClick,VPAD_BUTTON_STICK_R}
+    };
+    for(const auto& entry:kButtons)if(gamepad(entry.action))buttons|=entry.bit;
+    lx=spl_controls::axis_value(bindings.axes[0],gc);
+    ly=spl_controls::axis_value(bindings.axes[1],gc);
+    rx=spl_controls::axis_value(bindings.axes[2],gc);
+    ry=spl_controls::axis_value(bindings.axes[3],gc);
+    auto digital=[&](spl_controls::Action negative, spl_controls::Action positive, float& value) {
+        const bool lo=gamepad(negative),hi=gamepad(positive);
+        if(lo||hi)value=float(int(hi)-int(lo));
+    };
+    digital(spl_controls::MoveLeft,spl_controls::MoveRight,lx);
+    digital(spl_controls::MoveDown,spl_controls::MoveUp,ly);
+    digital(spl_controls::AimLeft,spl_controls::AimRight,rx);
+    digital(spl_controls::AimDown,spl_controls::AimUp,ry);
+    shape_stick(lx,ly);shape_stick(rx,ry);
+
+    // Keyboard/mouse overlay is active only on the TV output; GamePad view
+    // continues to use the mouse for simulated touch input.
+    if(g_screen_mode==ScreenMode::TV) {
+        const Uint8* keys=SDL_GetKeyboardState(nullptr);
+        int mx=0,my=0;
+        const Uint32 mouse=SDL_GetMouseState(&mx,&my);
+        auto desktop=[&](spl_controls::Action action) {
+            return spl_controls::keyboard_mouse(bindings.binding[action],keys,mouse);
         };
-        // SDL's A/B/X/Y are positions (south/east/west/north); the GamePad
-        // has B south, A east, Y west, X north.
-        if (btn(SDL_CONTROLLER_BUTTON_A))             buttons |= VPAD_BUTTON_B;
-        if (btn(SDL_CONTROLLER_BUTTON_B))             buttons |= VPAD_BUTTON_A;
-        if (btn(SDL_CONTROLLER_BUTTON_X))             buttons |= VPAD_BUTTON_Y;
-        if (btn(SDL_CONTROLLER_BUTTON_Y))             buttons |= VPAD_BUTTON_X;
-        if (btn(SDL_CONTROLLER_BUTTON_DPAD_LEFT))     buttons |= VPAD_BUTTON_LEFT;
-        if (btn(SDL_CONTROLLER_BUTTON_DPAD_RIGHT))    buttons |= VPAD_BUTTON_RIGHT;
-        if (btn(SDL_CONTROLLER_BUTTON_DPAD_UP))       buttons |= VPAD_BUTTON_UP;
-        if (btn(SDL_CONTROLLER_BUTTON_DPAD_DOWN))     buttons |= VPAD_BUTTON_DOWN;
-        if (btn(SDL_CONTROLLER_BUTTON_LEFTSHOULDER))  buttons |= VPAD_BUTTON_L;
-        if (btn(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) buttons |= VPAD_BUTTON_R;
-        if (btn(SDL_CONTROLLER_BUTTON_START))         buttons |= VPAD_BUTTON_PLUS;
-        if (btn(SDL_CONTROLLER_BUTTON_BACK))          buttons |= VPAD_BUTTON_MINUS;
-        if (btn(SDL_CONTROLLER_BUTTON_GUIDE))         buttons |= VPAD_BUTTON_HOME;
-        if (btn(SDL_CONTROLLER_BUTTON_LEFTSTICK))     buttons |= VPAD_BUTTON_STICK_L;
-        if (btn(SDL_CONTROLLER_BUTTON_RIGHTSTICK))    buttons |= VPAD_BUTTON_STICK_R;
-
-        // Left trigger → ZL, right trigger → ZR (digital triggers report 32767)
-        if (SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT)  > 16384) buttons |= VPAD_BUTTON_ZL;
-        if (SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 16384) buttons |= VPAD_BUTTON_ZR;
-
-        // SDL axes: [-32768, 32767] with y > 0 = down; the GamePad reports y > 0 = up.
-        lx =  SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX)  / 32767.0f;
-        ly = -SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY)  / 32767.0f;
-        rx =  SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
-        ry = -SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_RIGHTY) / 32767.0f;
-        shape_stick(lx, ly);
-        shape_stick(rx, ry);
-    }
-
-    // -----------------------------------------------------------------------
-    // Keyboard + mouse input (Splatoon layout, active in TV view)
-    // KB+M additively overlays controller: pressing a key overrides that axis.
-    // -----------------------------------------------------------------------
-    if (g_screen_mode == ScreenMode::TV) {
-        const uint8_t* keys = SDL_GetKeyboardState(nullptr);
-
-        // WASD → left stick movement
-        float kb_lx = 0.0f, kb_ly = 0.0f;
-        if (keys[SDL_SCANCODE_D]) kb_lx += 1.0f;
-        if (keys[SDL_SCANCODE_A]) kb_lx -= 1.0f;
-        if (keys[SDL_SCANCODE_W]) kb_ly += 1.0f; // +Y = up on the GamePad stick
-        if (keys[SDL_SCANCODE_S]) kb_ly -= 1.0f;
-        if (kb_lx != 0.0f && kb_ly != 0.0f) { kb_lx *= 0.7071f; kb_ly *= 0.7071f; } // diag norm
-        if (kb_lx != 0.0f || kb_ly != 0.0f) { lx = kb_lx; ly = kb_ly; } // override controller
-
-        // Mouse relative motion → right stick (camera / aim); moving the
-        // mouse up looks up.
-        int mdx = 0, mdy = 0;
-        SDL_GetRelativeMouseState(&mdx, &mdy);
-        float mrx = (float)mdx * KBM_MOUSE_SENSITIVITY;
-        float mry = -(float)mdy * KBM_MOUSE_SENSITIVITY;
-        if (mrx < -1.0f) mrx = -1.0f; if (mrx > 1.0f) mrx = 1.0f;
-        if (mry < -1.0f) mry = -1.0f; if (mry > 1.0f) mry = 1.0f;
-        // Blend: mouse delta is added to controller stick, clamped
-        rx += mrx; if (rx < -1.0f) rx = -1.0f; if (rx > 1.0f) rx = 1.0f;
-        ry += mry; if (ry < -1.0f) ry = -1.0f; if (ry > 1.0f) ry = 1.0f;
-
-        // Mouse buttons — ZR = fire, ZL = squid / aim
-        int mx_dummy, my_dummy;
-        uint32_t mstate = (uint32_t)SDL_GetMouseState(&mx_dummy, &my_dummy);
-        if (mstate & SDL_BUTTON(SDL_BUTTON_LEFT))  buttons |= VPAD_BUTTON_ZR;
-        if (mstate & SDL_BUTTON(SDL_BUTTON_RIGHT)) buttons |= VPAD_BUTTON_ZL;
-
-        // Keyboard buttons
-        if (keys[SDL_SCANCODE_SPACE])  buttons |= VPAD_BUTTON_B;   // jump
-        if (keys[SDL_SCANCODE_Q])      buttons |= VPAD_BUTTON_X;   // sub weapon
-        if (keys[SDL_SCANCODE_E])      buttons |= VPAD_BUTTON_Y;   // special weapon
-        if (keys[SDL_SCANCODE_R])      buttons |= VPAD_BUTTON_R;   // R (centre cam / unused)
-        if (keys[SDL_SCANCODE_F])      buttons |= VPAD_BUTTON_PLUS;  // map / pause
-        if (keys[SDL_SCANCODE_G])      buttons |= VPAD_BUTTON_MINUS; // options
-        if (keys[SDL_SCANCODE_ESCAPE]) buttons |= VPAD_BUTTON_HOME;  // home menu
+        for(const auto& entry:kButtons)if(desktop(entry.action))buttons|=entry.bit;
+        const float horizontal=float(int(desktop(spl_controls::MoveRight))-
+                                     int(desktop(spl_controls::MoveLeft)));
+        const float vertical=float(int(desktop(spl_controls::MoveUp))-
+                                   int(desktop(spl_controls::MoveDown)));
+        if(horizontal!=0||vertical!=0) {
+            lx=horizontal;ly=vertical;
+            if(lx!=0&&ly!=0){lx*=0.70710678f;ly*=0.70710678f;}
+        }
+        const float aim_x=float(int(desktop(spl_controls::AimRight))-
+                                int(desktop(spl_controls::AimLeft)));
+        const float aim_y=float(int(desktop(spl_controls::AimUp))-
+                                int(desktop(spl_controls::AimDown)));
+        if(aim_x!=0||aim_y!=0){rx=aim_x;ry=aim_y;}
+        int dx=0,dy=0;
+        SDL_GetRelativeMouseState(&dx,&dy);
+        if(bindings.mouse_camera) {
+            rx=std::clamp(rx+float(dx)*bindings.mouse_sensitivity,-1.f,1.f);
+            ry=std::clamp(ry-float(dy)*bindings.mouse_sensitivity,-1.f,1.f);
+        }
     }
 
     // --- Simulated touch from mouse in Gamepad View ---
