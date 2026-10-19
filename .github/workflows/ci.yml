@@ -48,7 +48,7 @@ jobs:
           volk_url="$(python - <<'PY'
           from pathlib import Path
           import re
-          source=Path('port/cmake/PortableDependencies.cmake').read_text()
+          source=Path('port/cmake/PortableVulkan.cmake').read_text()
           match=re.search(r'FetchContent_Declare\(port_volk\s+URL\s+(\S+)',source)
           if not match: raise SystemExit('Cannot find pinned volk source URL')
           print(match.group(1))
