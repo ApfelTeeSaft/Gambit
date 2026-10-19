@@ -69,6 +69,17 @@ int main() {
     const std::string deviceB="030000005e0400008e02000014010000-fedcba0987654321";
     CHECK(valid_device_key(deviceA));
     CHECK(valid_device_key(deviceB));
+    Config chosen=defaults();
+    CHECK(!matches_selected_device(chosen,deviceA.substr(0,32),deviceA));
+    chosen.controller_mode=true;
+    chosen.controller_guid=deviceA.substr(0,32);
+    chosen.controller_key=deviceA;
+    CHECK(matches_selected_device(chosen,deviceA.substr(0,32),deviceA));
+    CHECK(!matches_selected_device(chosen,deviceB.substr(0,32),deviceB));
+    CHECK(!matches_selected_device(chosen,"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",deviceA));
+    chosen.controller_mode=false;
+    CHECK(!matches_selected_device(chosen,deviceA.substr(0,32),deviceA));
+
     CHECK(!valid_device_key("../../etc/passwd"));
     const auto pa=profile_path(dir,deviceA);
     const auto pb=profile_path(dir,deviceB);
