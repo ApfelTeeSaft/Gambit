@@ -14,6 +14,14 @@ The default invocation opens the **graphical installer** on Windows and Linux. W
 
 Supplying CLI options without `--gui` uses the command-line workflow for scripts and CI. Pass `--gui` to prefill paths from command-line arguments but still open the graphical installer. The GUI does not recompile or distribute game code itself: it launches the **bundled native RebrewU** on the user's computer during setup.
 
+### Input bindings
+
+The **Controls...** button in the graphical launcher opens a cross-platform SDL2 controller/keyboard/mouse editor. Select your installed game's directory first; changes are saved as **controls.ini** beside Splatoon.exe (or the Linux Splatoon binary). Click a Wii U action under **Keyboard / Mouse** or **Controller**, then press the desired key, mouse button, SDL controller button, trigger, stick direction, or joystick input. **Delete/Backspace** clears a binding and **Esc** cancels capture. The editor detects hot-plugged controllers and lets you cycle between connected SDL devices; SDL-mapped gamepads (Xbox, PlayStation, Switch Pro, etc.) and generic SDL joysticks can both be configured. Generic joysticks may require initial manual raw button/axis/hat assignments, as there is no universal physical button arrangement.
+
+Controller stick X/Y axes have separate selectable bindings. Move the desired physical axis when capturing, and **right-click** its row to invert. Digital movement and camera directions can also be assigned to keys or gamepad buttons. The **Mouse Camera** toggle preserves the existing mouse-to-right-stick emulation in TV view, with adjustable sensitivity, or can be disabled for controller-only aiming. In GamePad/touch view, the mouse remains available for the touch panel. Tab still toggles TV/GamePad view and F11 still toggles fullscreen.
+
+The current keyboard/mouse and gamepad controls remain the default preset. **Restore Defaults** resets the editor's draft; **Save and Close** writes your choices. Changes take effect the **next time the installed game starts**; restarting is required, but **rebuilding/recompiling is not**. Bindings belong to the installation directory, not the game dump, and the file can be backed up or edited manually. If no controls.ini exists or some entries are invalid, the runtime uses the original defaults for those settings. The controller's SDL GUID is used to prefer a selected physical model, with a fallback to another connected controller if that model is unavailable.
+
 ### Commands
 
 ```text
